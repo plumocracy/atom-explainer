@@ -236,8 +236,7 @@ function samplePoints(n: number, l: number, m: number, count: number) {
   return new Float32Array(points);
 }
 
-// Example: 2p orbital
-const data = samplePoints(3, 2, 0, 6_500);
+const data = samplePoints(5, 4, 0, 6_500);
 
 // Upload buffer
 const vao = gl.createVertexArray()!;
