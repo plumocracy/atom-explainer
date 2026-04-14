@@ -12,3 +12,26 @@ canvas {
 	top: 0;
 	left: 0;
 }
+
+h2 {
+	color: white;
+}
+
+h3 {
+	margin-right: 2rem;
+}
+
+.controls {
+	position: absolute; 
+	top: 20;
+	left: 20;
+	z-index: 10;
+	color: white;
+	display: flex;
+	flex-direction: column;
+}
+
+.slider {
+	display: flex;
+	flex-direction: row;
+}

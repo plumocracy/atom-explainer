@@ -236,7 +236,7 @@ function samplePoints(n: number, l: number, m: number, count: number) {
   return new Float32Array(points);
 }
 
-const data = samplePoints(5, 4, 0, 6_500);
+const data = samplePoints(2, 1, 0, 6_500);
 
 // Upload buffer
 const vao = gl.createVertexArray()!;
@@ -307,15 +307,15 @@ gl.uniformMatrix4fv(uProj, false, proj);
 // ==============================
 // Render loop
 // ==============================
-let angle = 50;
+let angle = 0.1;
 
 function render() {
   angle += 0.01;
 
   const eye = [
-    Math.cos(angle) * 50,
+    Math.cos(angle) * 40,
     20,
-    Math.sin(angle) * 50
+    Math.sin(angle) * 40
   ];
 
   const view = lookAt(eye, [0,0,0], [0,1,0]);

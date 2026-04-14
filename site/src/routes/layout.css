@@ -1,3 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap');
 @import 'tailwindcss';
+
+
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
+
+@layer components {
+	input[type='range'] {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 100%;
+		height: 6px;
+		background: #1a1b1e;
+		border-radius: 9999px;
+		outline: none;
+		cursor: pointer;
+	}
+
+	input[type='range']::-webkit-slider-runnable-track {
+		height: 6px;
+		background: #1a1b1e;
+		border-radius: 9999px;
+	}
+
+	input[type='range']::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 14px;
+		height: 14px;
+		border-radius: 9999px;
+		background: #dc5719;
+		margin-top: -4px;
+		cursor: pointer;
+		transition: transform 0.1s ease;
+	}
+
+	input[type='range']::-webkit-slider-thumb:hover {
+		transform: scale(1.2);
+	}
+
+	input[type='range']::-moz-range-track {
+		height: 6px;
+		background: #1a1b1e;
+		border-radius: 9999px;
+	}
+
+	input[type='range']::-moz-range-thumb {
+		width: 14px;
+		height: 14px;
+		border: none;
+		border-radius: 9999px;
+		background: #dc5719;
+		cursor: pointer;
+		transition: transform 0.1s ease;
+	}
+
+	input[type='range']::-moz-range-thumb:hover {
+		transform: scale(1.2);
+	}
+
+	@media (min-width: 768px) {
+
+		input[type='range'],
+		input[type='range']::-webkit-slider-runnable-track,
+		input[type='range']::-moz-range-track {
+			height: 8px;
+		}
+
+		input[type='range']::-webkit-slider-thumb {
+			margin-top: -3px;
+		}
+	}
+}
+
+@theme {
+	--color-toryblue: #1C4EAA;
+	--color-marsorange: #E36C14;
+	--color-boldgray: #666667;
+	--color-fashiongray: #8B8B8C;
+	--color-darkgray: #2d2d2e;
+}
