@@ -9,8 +9,6 @@
 
 	let { user, chatEnabled } = data;
 
-	console.log(chatEnabled);
-
 	let panelWidth = $state(600);
 	let dragging = false;
 

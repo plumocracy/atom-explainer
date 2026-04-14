@@ -6,11 +6,6 @@ import path from 'path';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
-	"server": {
-		"fs": {
-			allow: [path.resolve("static")]
-		}
-	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
