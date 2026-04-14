@@ -1,44 +1,45 @@
 import { probabilityDensity } from './orbital';
 import { STATUS_FINISHED, STATUS_PROCESSING, STATUS_ERROR } from '$lib/worker_states';
+import init, { sample_batch, type InitOutput } from '../../pkg/orbital_math.js';
+
 
 declare var self: DedicatedWorkerGlobalScope;
 
-self.onmessage = (e: MessageEvent<{ n: number; l: number; m: number; count: number, jobId: number }>) => {
-	const { n, l, m, count, jobId } = e.data;
-	self.postMessage({ status: STATUS_PROCESSING, jobId: jobId });
-	samplePoints(n, l, m, count, jobId);
+let ready: Promise<InitOutput | null>;
+
+const initWasm = () => {
+	if (!ready) ready = init();
+	return ready;
 };
 
-function samplePoints(n: number, l: number, m: number, count: number, jobId: number) {
-	console.log(`Sampling n:${n}, l:${l}, m:${m}`);
-	const points: number[] = [];
+const BATCH_SIZE = 500;   // points per Rust call
+const R_MAX = 20.0;
+const REJECTION_SCALE = 50.0;
 
-	const totalPoints = count * 3;
-	let iterations = 0;
+self.onmessage = async (e: MessageEvent) => {
+	await initWasm();
+	const { n, l, m, count, jobId } = e.data;
 
-	while (points.length < totalPoints) {
-		iterations++;
-		const r = Math.random() * 20;
-		const theta = Math.acos(1 - 2 * Math.random());
-		const phi = 2 * Math.PI * Math.random();
+	const allPoints: number[] = [];
 
-		const p = probabilityDensity(n, l, m, r, theta, phi);
+	while (allPoints.length < count * 3) {
+		const remaining = count - Math.floor(allPoints.length / 3);
+		const batchCount = Math.min(BATCH_SIZE, remaining);
 
-		// rejection sampling
-		if (Math.random() < p * 50) {
-			const x = r * Math.sin(theta) * Math.cos(phi);
-			const y = r * Math.sin(theta) * Math.sin(phi);
-			const z = r * Math.cos(theta);
+		// Rust returns a Float32Array view into WASM memory
+		const batch = sample_batch(n, l, m, batchCount, R_MAX, REJECTION_SCALE);
+		allPoints.push(...batch);
 
-			points.push(x, y, z);
-		}
-		if (iterations % 1000 === 0) {
-			self.postMessage({ status: STATUS_PROCESSING, progress: points.length / totalPoints, jobId });
-		}
+		self.postMessage({
+			status: STATUS_PROCESSING,
+			progress: allPoints.length / (count * 3),
+			jobId,
+		});
 	}
 
-
-	const floatPoints = new Float32Array(points);
-
-	self.postMessage({ status: STATUS_FINISHED, points: floatPoints, jobId }, { transfer: [floatPoints.buffer] });
-}
+	const floatPoints = new Float32Array(allPoints);
+	self.postMessage(
+		{ status: STATUS_FINISHED, points: floatPoints, jobId },
+		{ transfer: [floatPoints.buffer] }
+	);
+};
