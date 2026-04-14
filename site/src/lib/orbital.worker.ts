@@ -3,13 +3,13 @@ import { STATUS_FINISHED, STATUS_PROCESSING, STATUS_ERROR } from '$lib/worker_st
 
 declare var self: DedicatedWorkerGlobalScope;
 
-self.onmessage = (e: MessageEvent<{ n: number; l: number; m: number; count: number }>) => {
-	const { n, l, m, count } = e.data;
-	self.postMessage({ status: STATUS_PROCESSING });
-	samplePoints(n, l, m, count);
+self.onmessage = (e: MessageEvent<{ n: number; l: number; m: number; count: number, jobId: number }>) => {
+	const { n, l, m, count, jobId } = e.data;
+	self.postMessage({ status: STATUS_PROCESSING, jobId: jobId });
+	samplePoints(n, l, m, count, jobId);
 };
 
-function samplePoints(n: number, l: number, m: number, count: number) {
+function samplePoints(n: number, l: number, m: number, count: number, jobId: number) {
 	console.log(`Sampling n:${n}, l:${l}, m:${m}`);
 	const points: number[] = [];
 
@@ -33,12 +33,12 @@ function samplePoints(n: number, l: number, m: number, count: number) {
 			points.push(x, y, z);
 		}
 		if (iterations % 1000 === 0) {
-			self.postMessage({ status: STATUS_PROCESSING, progress: points.length / totalPoints });
+			self.postMessage({ status: STATUS_PROCESSING, progress: points.length / totalPoints, jobId });
 		}
 	}
 
 
 	const floatPoints = new Float32Array(points);
 
-	self.postMessage({ status: STATUS_FINISHED, points: floatPoints }, { transfer: [floatPoints.buffer] });
+	self.postMessage({ status: STATUS_FINISHED, points: floatPoints, jobId }, { transfer: [floatPoints.buffer] });
 }

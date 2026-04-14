@@ -24,6 +24,16 @@
 	let worker_state = $state(STATUS_IDLE);
 	let worker_progress = $state();
 
+	let show_loading = $state(false);
+	let loadingTimer: ReturnType<typeof setTimeout>;
+
+	let debounceTimer: ReturnType<typeof setTimeout>;
+
+	let displayPointCount = $state(0);
+	let displayVao: WebGLVertexArrayObject | null = null;
+
+	let currentJobId = 0;
+
 	let n = $derived(orbitalState.n);
 	let l = $derived(orbitalState.l);
 	let m = $derived(orbitalState.m);
@@ -35,9 +45,30 @@
 
 		if (!worker) return;
 
-		console.log('new value!');
-		const clamped = clampQuantumNumbers(_n, _l, _m);
-		startWorker(clamped.n, clamped.l, clamped.m);
+		clearTimeout(debounceTimer);
+		debounceTimer = setTimeout(() => {
+			const clamped = clampQuantumNumbers(_n, _l, _m);
+			startWorker(clamped.n, clamped.l, clamped.m);
+		}, 200);
+	});
+
+	// Only show the loading bar if a signifigant amount of time has passed.
+	$effect(() => {
+		if (worker_state === STATUS_PROCESSING) {
+			loadingTimer = setTimeout(() => {
+				show_loading = true;
+			}, 250); // only show if loading takes longer than 150ms
+		} else {
+			clearTimeout(loadingTimer);
+			show_loading = false;
+		}
+	});
+
+	$effect(() => {
+		if (worker_progress >= 0.95) {
+			clearTimeout(loadingTimer);
+			show_loading = false;
+		}
 	});
 
 	function sub(a: number[], b: number[]) {
@@ -186,9 +217,14 @@ void main() {
 					progress?: number;
 					points?: Float32Array;
 					message?: string;
+					jobId: number;
 				}>
 			) => {
-				const { status, progress, points, message } = e.data;
+				const { status, progress, points, message, jobId } = e.data;
+
+				if (jobId !== currentJobId) {
+					return;
+				}
 
 				if (status === STATUS_PROCESSING) {
 					worker_state = STATUS_PROCESSING;
@@ -202,7 +238,6 @@ void main() {
 					pointCount = points.length / 3;
 
 					const buf = gl.createBuffer()!;
-					pointData = points;
 					gl.bindBuffer(gl.ARRAY_BUFFER, buf);
 					gl.bufferData(gl.ARRAY_BUFFER, points, gl.STATIC_DRAW);
 
@@ -211,7 +246,10 @@ void main() {
 
 					gl.enableVertexAttribArray(0);
 					gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-					gl.bindVertexArray(vao);
+					gl.bindVertexArray(null);
+
+					displayVao = vao;
+					displayPointCount = points.length / 3;
 
 					worker_state = STATUS_FINISHED;
 				} else if (status === STATUS_ERROR) {
@@ -227,9 +265,12 @@ void main() {
 			return;
 		}
 
+		currentJobId++; // invalidate previous job
+		const jobId = currentJobId;
+
 		worker_state = STATUS_IDLE;
 
-		worker.postMessage({ n, l, m, count: 6_500 });
+		worker.postMessage({ n, l, m, count: 6_500, jobId });
 	}
 
 	onMount(() => {
@@ -270,8 +311,10 @@ void main() {
 			gl.clearColor(0.051, 0.052, 0.061, 1.0);
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-			if (worker_state == STATUS_FINISHED) {
-				gl.drawArrays(gl.POINTS, 0, pointData.length / 3);
+			if (displayVao) {
+				gl.bindVertexArray(displayVao);
+				gl.drawArrays(gl.POINTS, 0, displayPointCount);
+				gl.bindVertexArray(null);
 			}
 
 			animFrameId = requestAnimationFrame(render);
@@ -287,11 +330,11 @@ void main() {
 
 <div class="relative h-dvh w-full">
 	<!-- Loading Bar -->
-	{#if worker_state == STATUS_PROCESSING}
+	{#if show_loading}
 		<div
 			class="absolute bottom-1/2 left-1/2 -translate-x-1/2 -translate-y-5 text-2xl text-zinc-300"
 		>
-			Loading <strong>Atom</strong>
+			Loading <strong class="">Atom</strong>
 		</div>
 		<div
 			class="absolute bottom-1/2 left-1/2 h-2 w-48 -translate-x-1/2 overflow-hidden bg-[#1a1b1e]"

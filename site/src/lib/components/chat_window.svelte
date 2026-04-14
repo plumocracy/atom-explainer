@@ -5,6 +5,7 @@
 	import { enhance } from '$app/forms';
 	import { orbitalState } from '$lib/stores/obital.svelte';
 	import type { ModelResponse } from '$lib/server/openrouter';
+	import ResponseCard from './response_card.svelte';
 
 	let { show_chat, user, do_close, form }: { show_chat: boolean; user; do_close: () => void } =
 		$props();
@@ -88,7 +89,9 @@
 		<!-- Response Div -->
 
 		{#if pushElementHidden}
-			<div class="mb-4 h-full w-full"></div>
+			<div class="mb-4 flex h-full w-full">
+				<ResponseCard n={1} l={0} m={0} message={'This is my awesome message'} />
+			</div>
 		{/if}
 
 		<!-- Message Box and animation harness -->

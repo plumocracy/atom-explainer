@@ -1,15 +1,11 @@
 import type { PageServerLoad, Actions } from "./$types";
-import { queryModel } from "$lib/server/openrouter";
-import { db } from "$lib/server/db";
 import { fail } from "@sveltejs/kit";
+import { env } from '$env/dynamic/private';
 
 
 export const load: PageServerLoad = async ({ locals }) => {
-	if (locals.user) {
-		console.log(`User: ${locals.user.name}`);
-	}
-
-	return { user: locals.user }
+	const { user } = locals;
+	return { user, chatEnabled: env.FLAG_CHAT_ENABLED == "TRUE" }
 }
 
 export const actions = {
