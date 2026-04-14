@@ -24,24 +24,31 @@
 	let worker_state = $state(STATUS_IDLE);
 	let worker_progress = $state(0);
 
-	let show_loading = $state(false);
 	let loadingTimer: ReturnType<typeof setTimeout>;
 	let debounceTimer: ReturnType<typeof setTimeout>;
 
-	// Each chunk gets its own VAO and independent transition t.
-	type ChunkVao = {
+	// A chunk slot holds a VAO that is always rendering.
+	// When new data arrives for this slot, prevBuf is updated to the current
+	// interpolated positions and nextBuf is updated to the new points, then t resets.
+	type ChunkSlot = {
 		vao: WebGLVertexArrayObject;
+		prevBuf: WebGLBuffer;
+		nextBuf: WebGLBuffer;
+		// The raw nextPosition data, kept so we can use it as prevPosition next time.
+		nextPoints: Float32Array;
 		pointCount: number;
 		t: number;
 	};
 
-	let chunks: ChunkVao[] = [];
+	// Fixed-size pool of slots. Initialised on first job, then reused forever.
+	let slots: ChunkSlot[] = [];
 
-	// Snapshot of the full old cloud at job-start, used for pairing new chunks against.
-	let oldPoints: Float32Array = new Float32Array(0);
-	// Accumulates chunks for the current job so we can snapshot them for the next job.
-	let collectedPoints: number[] = [];
+	// Index of the next slot to update when a chunk arrives.
+	let incomingSlotIndex = 0;
 
+	// TODO: Make transiton duration proportional to time it took to get first buffer back
+	// therefore making all transitions take the same length of time, hiding the loading
+	// all together
 	let transitionDuration = 0.8;
 	let lastFrameTime = 0;
 
@@ -67,36 +74,14 @@
 		if (orbitalState.m < -orbitalState.l) orbitalState.m = -orbitalState.l;
 	});
 
-	// Debounce worker restarts when quantum numbers change.
+	// Debounce worker restarts on quantum number changes.
 	$effect(() => {
 		const _n = n,
 			_l = l,
 			_m = m;
 		if (!worker) return;
-
 		clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => {
-			startWorker(_n, _l, _m);
-		}, 100);
-	});
-
-	// Only show the loading bar if processing takes a noticeable amount of time.
-	$effect(() => {
-		if (worker_state === STATUS_PROCESSING) {
-			loadingTimer = setTimeout(() => {
-				show_loading = true;
-			}, 150);
-		} else {
-			clearTimeout(loadingTimer);
-			show_loading = false;
-		}
-	});
-
-	$effect(() => {
-		if (worker_progress >= 0.95) {
-			clearTimeout(loadingTimer);
-			show_loading = false;
-		}
+		debounceTimer = setTimeout(() => startWorker(_n, _l, _m), 250);
 	});
 
 	const vs = `#version 300 es
@@ -148,45 +133,56 @@ void main() {
 		return prog;
 	}
 
-	// Randomly permutes point triples via Fisher-Yates and returns a copy.
-	function shuffleFloat32(arr: Float32Array): Float32Array {
-		const n = arr.length / 3;
-		const out = arr.slice();
-		for (let i = n - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			for (let k = 0; k < 3; k++) {
-				const tmp = out[i * 3 + k];
-				out[i * 3 + k] = out[j * 3 + k];
-				out[j * 3 + k] = tmp;
-			}
-		}
-		return out;
+	function sampleCurrentPositions(slot: ChunkSlot): Float32Array {
+		return slot.nextPoints.slice();
 	}
 
-	// Builds a VAO with prevPosition at location 0 and nextPosition at location 1.
-	function buildTransitionVao(prev: Float32Array, next: Float32Array): WebGLVertexArrayObject {
+	// Allocates a brand-new slot with both prev and next set to the same points
+	// so it appears immediately with no transition.
+	function createSlot(points: Float32Array): ChunkSlot {
 		const vao = gl.createVertexArray()!;
 		gl.bindVertexArray(vao);
 
 		const prevBuf = gl.createBuffer()!;
 		gl.bindBuffer(gl.ARRAY_BUFFER, prevBuf);
-		gl.bufferData(gl.ARRAY_BUFFER, prev, gl.STATIC_DRAW);
+		gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
 		gl.enableVertexAttribArray(0);
 		gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 
 		const nextBuf = gl.createBuffer()!;
 		gl.bindBuffer(gl.ARRAY_BUFFER, nextBuf);
-		gl.bufferData(gl.ARRAY_BUFFER, next, gl.STATIC_DRAW);
+		gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
 		gl.enableVertexAttribArray(1);
 		gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
 
 		gl.bindVertexArray(null);
-		return vao;
+
+		return {
+			vao,
+			prevBuf,
+			nextBuf,
+			nextPoints: points.slice(),
+			pointCount: points.length / 3,
+			t: 1.0 // start fully arrived
+		};
 	}
 
-	// Returns a randomly sampled slice of `count` points from arr.
-	function randomSlice(arr: Float32Array, count: number): Float32Array {
-		return shuffleFloat32(arr).slice(0, count * 3);
+	// Updates an existing slot with new destination points, snapping prevPosition
+	// to wherever the points currently are and resetting t to kick off a new transition.
+	function updateSlot(slot: ChunkSlot, newPoints: Float32Array) {
+		const currentPos = sampleCurrentPositions(slot);
+
+		// Upload current interpolated positions as the new prevPosition.
+		gl.bindBuffer(gl.ARRAY_BUFFER, slot.prevBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, currentPos, gl.DYNAMIC_DRAW);
+
+		// Upload new destination as nextPosition.
+		gl.bindBuffer(gl.ARRAY_BUFFER, slot.nextBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, newPoints, gl.DYNAMIC_DRAW);
+
+		slot.nextPoints = newPoints;
+		slot.pointCount = newPoints.length / 3;
+		slot.t = 0.0;
 	}
 
 	async function initWebWorker() {
@@ -207,32 +203,29 @@ void main() {
 				}>
 			) => {
 				const { status, progress, points, message, jobId } = e.data;
-
-				if (jobId !== currentJobId) return;
+				if (jobId !== currentJobId) {
+					return;
+				}
 
 				if (status === STATUS_PROCESSING) {
 					worker_state = STATUS_PROCESSING;
 					worker_progress = progress ?? 0;
+
 					if (points && points.length > 0) {
-						collectedPoints.push(...points);
+						const slotIndex = incomingSlotIndex % Math.max(slots.length, 1);
 
-						const chunkPointCount = points.length / 3;
-						const prev =
-							oldPoints.length >= points.length ? randomSlice(oldPoints, chunkPointCount) : points;
-
-						const vao = buildTransitionVao(prev, points);
-						const newChunk = { vao, pointCount: chunkPointCount, t: 0.0 };
-
-						// First chunk of this job — now it's safe to drop the old cloud.
-						if (collectedPoints.length / 3 <= chunkPointCount) {
-							chunks = [newChunk];
+						if (slots.length < 13) {
+							// Pool not yet full — allocate a new slot.
+							slots.push(createSlot(points));
 						} else {
-							chunks.push(newChunk);
+							// Pool is full — update the slot at this index in-place.
+							updateSlot(slots[slotIndex], points);
+							console.log(`Slot ${slotIndex}: ${slots[slotIndex].pointCount}`);
 						}
+
+						incomingSlotIndex++;
 					}
 				} else if (status === STATUS_FINISHED) {
-					// Snapshot the full collected cloud for pairing on the next job.
-					oldPoints = new Float32Array(collectedPoints);
 					worker_state = STATUS_FINISHED;
 				} else if (status === STATUS_ERROR) {
 					console.error('Worker error:', message);
@@ -246,9 +239,7 @@ void main() {
 		if (!worker) return;
 
 		currentJobId++;
-		oldPoints = new Float32Array(collectedPoints);
-		collectedPoints = [];
-		// Don't clear chunks here — let the old cloud keep rendering
+		incomingSlotIndex = 0; // start cycling from slot 0 again
 
 		worker_state = STATUS_IDLE;
 		worker.postMessage({ n, l, m, count: 6_500, jobId: currentJobId });
@@ -301,12 +292,12 @@ void main() {
 			gl.clearColor(0.051, 0.052, 0.061, 1.0);
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-			for (const chunk of chunks) {
-				chunk.t = Math.min(1.0, chunk.t + dt / transitionDuration);
-				const eased = chunk.t * chunk.t * (3.0 - 2.0 * chunk.t);
+			for (const slot of slots) {
+				slot.t = Math.min(1.0, slot.t + dt / transitionDuration);
+				const eased = slot.t * slot.t * (3.0 - 2.0 * slot.t);
 				gl.uniform1f(uT, eased);
-				gl.bindVertexArray(chunk.vao);
-				gl.drawArrays(gl.POINTS, 0, chunk.pointCount);
+				gl.bindVertexArray(slot.vao);
+				gl.drawArrays(gl.POINTS, 0, slot.pointCount);
 			}
 
 			animFrameId = requestAnimationFrame(render);
@@ -322,22 +313,6 @@ void main() {
 </script>
 
 <div class="relative h-dvh w-full text-zinc-300">
-	<!-- Loading Bar
-	{#if show_loading}
-		<div class="absolute bottom-1/2 left-1/2 -translate-x-1/2 -translate-y-5 text-2xl">
-			Loading <strong>Atom</strong>
-		</div>
-		<div
-			class="absolute bottom-1/2 left-1/2 h-2 w-48 -translate-x-1/2 overflow-hidden bg-[#1a1b1e]"
-		>
-			<div
-				class="h-full bg-[#dc5719] transition-[width] duration-100 ease-linear"
-				style="width: {worker_progress * 100}%"
-			></div>
-		</div>
-	{/if}
-	-->
-
 	<!-- Controls -->
 	<div
 		class="absolute top-5 left-5 flex flex-col space-y-5 sm:top-10 sm:left-10 sm:text-xl md:top-10 md:left-10 md:text-2xl"

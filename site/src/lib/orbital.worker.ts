@@ -25,10 +25,10 @@ self.onmessage = async (e: MessageEvent) => {
 		const remaining = count - totalCollected;
 		const batchCount = Math.min(BATCH_SIZE, remaining);
 
-		// Rust returns a Float32Array view into WASM memory — slice to own the data
-		// before transferring, since the WASM view may be invalidated on next call.
+		// Rust returns a Float32Array view into WASM memory — copy it out before
+		// the next call invalidates the view.
 		const batch = sample_batch(n, l, m, batchCount, R_MAX, REJECTION_SCALE);
-		const chunk = new Float32Array(batch); // copy out of WASM memory
+		const chunk = new Float32Array(batch);
 
 		totalCollected += batchCount;
 
