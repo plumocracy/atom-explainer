@@ -15,19 +15,11 @@ export default defineConfig({
 			],
 		},
 	},
-	plugins: [tailwindcss(), sveltekit(), wasm(), topLevelAwait()],
-	assetsInclude: ['**/*.wasm'],
+	plugins: [tailwindcss(), sveltekit()],
 	resolve: {
 		alias: {
 			'@orbital': resolve(__dirname, "./orbital-math/pkg")
 		}
-	},
-	worker: {
-		format: 'es',
-		plugins: () => [wasm(), topLevelAwait()],
-	},
-	build: {
-		target: "esnext"
 	},
 	test: {
 		expect: { requireAssertions: true },

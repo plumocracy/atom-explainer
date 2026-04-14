@@ -3,12 +3,17 @@
 	"name": "atom-explainer",
 	"compatibility_date": "2026-04-10",
 	"compatibility_flags": [
-		"nodejs_als"
+		"nodejs_compat"
 	],
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
+	},
+	"env": {
+		"preview": {
+			"name": "atom-explainer-preview"
+		}
 	},
 	"workers_dev": true,
 	"preview_urls": true
