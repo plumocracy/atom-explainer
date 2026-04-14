@@ -1,4 +1,3 @@
-import { probabilityDensity } from './orbital';
 import { STATUS_FINISHED, STATUS_PROCESSING, STATUS_ERROR } from '$lib/worker_states';
 import init, { sample_batch } from '../../orbital-math/pkg/orbital_math.js';
 import wasmUrl from '../../orbital-math/pkg/orbital_math_bg.wasm?url';

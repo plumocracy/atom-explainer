@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import { orbitalState } from '$lib/stores/obital.svelte';
+	import { perspective, lookAt, type vector3 } from '$lib/render_math';
 
 	import {
 		STATUS_FINISHED,
@@ -19,7 +20,6 @@
 
 	let worker: Worker;
 	let pointCount = 0;
-	let pointData;
 
 	let worker_state = $state(STATUS_IDLE);
 	let worker_progress = $state();
@@ -29,15 +29,23 @@
 
 	let debounceTimer: ReturnType<typeof setTimeout>;
 
+	// Needed to keep rendering when background job is gonig.
 	let displayPointCount = $state(0);
 	let displayVao: WebGLVertexArrayObject | null = null;
 
 	let currentJobId = 0;
 
+	// TODO: Make this modifiable?
+	let rotationSpeed = 0.0035;
+
 	let n = $derived(orbitalState.n);
 	let l = $derived(orbitalState.l);
 	let m = $derived(orbitalState.m);
 
+	let nMax = 5;
+	let nMin = 1;
+
+	// Handle updaing the simulation values whenever the gloabal n, l, and m state changes.
 	$effect(() => {
 		const _n = n,
 			_l = l,
@@ -49,7 +57,7 @@
 		debounceTimer = setTimeout(() => {
 			const clamped = clampQuantumNumbers(_n, _l, _m);
 			startWorker(clamped.n, clamped.l, clamped.m);
-		}, 200);
+		}, 100);
 	});
 
 	// Only show the loading bar if a signifigant amount of time has passed.
@@ -57,86 +65,20 @@
 		if (worker_state === STATUS_PROCESSING) {
 			loadingTimer = setTimeout(() => {
 				show_loading = true;
-			}, 250); // only show if loading takes longer than 150ms
+			}, 150); // only show if loading takes longer than 250ms
 		} else {
 			clearTimeout(loadingTimer);
 			show_loading = false;
 		}
 	});
 
+	// "Dont show the progress bar if its nearly done" effect
 	$effect(() => {
 		if (worker_progress >= 0.95) {
 			clearTimeout(loadingTimer);
 			show_loading = false;
 		}
 	});
-
-	function sub(a: number[], b: number[]) {
-		return [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
-	}
-
-	function cross(a: number[], b: number[]) {
-		return [
-			a[1]! * b[2]! - a[2]! * b[1]!,
-			a[2]! * b[0]! - a[0]! * b[2]!,
-			a[0]! * b[1]! - a[1]! * b[0]!
-		];
-	}
-
-	function dot(a: number[], b: number[]) {
-		return a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
-	}
-
-	function normalize(v: number[]) {
-		const l = Math.hypot(...v);
-		return v.map((x) => x / l);
-	}
-
-	function perspective(fov: number, aspect: number, near: number, far: number) {
-		const f = 1 / Math.tan(fov / 2);
-		return new Float32Array([
-			f / aspect,
-			0,
-			0,
-			0,
-			0,
-			f,
-			0,
-			0,
-			0,
-			0,
-			(far + near) / (near - far),
-			-1,
-			0,
-			0,
-			(2 * far * near) / (near - far),
-			0
-		]);
-	}
-
-	function lookAt(eye: number[], center: number[], up: number[]) {
-		const z = normalize(sub(eye, center));
-		const x = normalize(cross(up, z));
-		const y = cross(z, x);
-		return new Float32Array([
-			x[0]!,
-			y[0]!,
-			z[0]!,
-			0,
-			x[1]!,
-			y[1]!,
-			z[1]!,
-			0,
-			x[2]!,
-			y[2]!,
-			z[2]!,
-			0,
-			-dot(x, eye),
-			-dot(y, eye),
-			-dot(z, eye),
-			1
-		]);
-	}
 
 	const vs = `#version 300 es
 precision highp float;
@@ -191,7 +133,7 @@ void main() {
 		m: number
 	): { n: number; l: number; m: number } {
 		// n must be a positive integer between 1 and 5
-		const clampedN = Math.min(Math.max(1, Math.round(n)), 5);
+		const clampedN = Math.min(Math.max(nMin, Math.round(n)), nMax);
 
 		// l must be in range [0, n-1]
 		const clampedL = Math.min(Math.max(0, Math.round(l)), clampedN - 1);
@@ -275,11 +217,15 @@ void main() {
 
 	onMount(() => {
 		initWebWorker();
+
 		gl = canvas.getContext('webgl2')!;
 
 		canvas.width = window.innerWidth;
 		canvas.height = window.innerHeight;
+
 		gl.viewport(0, 0, canvas.width, canvas.height);
+
+		// This is used to get that "matte" look on the particles.
 		gl.enable(gl.BLEND);
 		gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -292,7 +238,7 @@ void main() {
 		const proj = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
 		gl.uniformMatrix4fv(uProj, false, proj);
 
-		let angle = 0.1;
+		let angle = rotationSpeed;
 
 		function render() {
 			if (canvas.clientWidth !== canvas.width || canvas.clientHeight !== canvas.height) {
@@ -303,9 +249,10 @@ void main() {
 				gl.uniformMatrix4fv(uProj, false, proj);
 			}
 
-			angle += 0.01;
-			const eye = [Math.cos(angle) * 40, 20, Math.sin(angle) * 40];
-			const view = lookAt(eye, [0, 0, 0], [0, 1, 0]);
+			angle += rotationSpeed;
+			const eye = { x: Math.cos(angle) * 40, y: 20, z: Math.sin(angle) * 40 };
+			const view = lookAt(eye, { x: 0, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
+
 			gl.uniformMatrix4fv(uView, false, view);
 
 			gl.clearColor(0.051, 0.052, 0.061, 1.0);
@@ -314,7 +261,6 @@ void main() {
 			if (displayVao) {
 				gl.bindVertexArray(displayVao);
 				gl.drawArrays(gl.POINTS, 0, displayPointCount);
-				gl.bindVertexArray(null);
 			}
 
 			animFrameId = requestAnimationFrame(render);
@@ -328,12 +274,10 @@ void main() {
 	});
 </script>
 
-<div class="relative h-dvh w-full">
+<div class="relative h-dvh w-full text-zinc-300">
 	<!-- Loading Bar -->
 	{#if show_loading}
-		<div
-			class="absolute bottom-1/2 left-1/2 -translate-x-1/2 -translate-y-5 text-2xl text-zinc-300"
-		>
+		<div class="absolute bottom-1/2 left-1/2 -translate-x-1/2 -translate-y-5 text-2xl">
 			Loading <strong class="">Atom</strong>
 		</div>
 		<div
@@ -348,25 +292,30 @@ void main() {
 
 	<!-- Controls -->
 	<div
-		class="absolute top-5 left-5 flex flex-col space-y-5 text-zinc-300 sm:top-10 sm:left-10 sm:text-xl md:top-10 md:left-10 md:text-2xl"
+		class="absolute top-5 left-5 flex flex-col space-y-5 sm:top-10 sm:left-10 sm:text-xl md:top-10 md:left-10 md:text-2xl"
 	>
-		<!-- I could make these "reusable" but this is fine for now. -->
+		<!-- Theres a bunch of logic in here that handles keeping the sliders in sync with each other -->
+		<!-- The general rule is this: (n >= 1 <= 5) (l >= 0 <= n-1)  (m >= -l <= l) -->
+		<!-- if you keep those in mind, all the special value min maxes make a lot of sense. -->
 		<div class="flex flex-col space-y-2">
 			<span>n: {orbitalState.n}</span>
 			<input
 				type="range"
-				min="1"
-				max="5"
+				min={nMin}
+				max={nMax}
 				step="1"
 				bind:value={orbitalState.n}
 				onchange={() => console.log('slider change: ' + orbitalState.n)}
 			/>
 		</div>
+		<!-- Only show L if it is modifiable -->
 		{#if orbitalState.n > 1}
 			<div class="flex flex-col space-y-2">
 				<span>l: {orbitalState.l}</span>
 				<input type="range" min="0" max={orbitalState.n - 1} step="1" bind:value={orbitalState.l} />
 			</div>
+
+			<!-- Only show M if it is modifiable -->
 			{#if orbitalState.l > 0}
 				<div class="flex flex-col space-y-2">
 					<span>m: {orbitalState.m}</span>
@@ -382,5 +331,6 @@ void main() {
 		{/if}
 	</div>
 
+	<!-- Rendering canvas -->
 	<canvas bind:this={canvas} class="block h-full w-full"></canvas>
 </div>

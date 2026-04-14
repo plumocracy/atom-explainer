@@ -1,13 +1,7 @@
 use wasm_bindgen::prelude::*;
 
-// ==============================
-// Constants
-// ==============================
 const A0: f64 = 1.0; // Bohr radius (can scale visually)
 
-// ==============================
-// Factorial + helpers
-// ==============================
 fn factorial(n: u32) -> f64 {
     (2..=n).fold(1.0, |acc, i| acc * i as f64)
 }
@@ -21,9 +15,7 @@ fn laguerre(k: u32, alpha: u32, x: f64) -> f64 {
     })
 }
 
-// ==============================
 // Radial function R_nl(r)
-// ==============================
 #[wasm_bindgen]
 pub fn radial(n: u32, l: u32, r: f64) -> f64 {
     let rho = (2.0 * r) / (n as f64 * A0);
@@ -33,10 +25,8 @@ pub fn radial(n: u32, l: u32, r: f64) -> f64 {
     norm * (-rho / 2.0).exp() * rho.powi(l as i32) * laguerre(n - l - 1, 2 * l + 1, rho)
 }
 
-// ==============================
 // Spherical Harmonics Y_l^m
 // (Real-valued versions for rendering)
-// ==============================
 fn legendre(l: u32, m: u32, x: f64) -> f64 {
     if m > l {
         return 0.0;
@@ -87,32 +77,27 @@ pub fn spherical_harmonic(l: u32, m: i32, theta: f64, phi: f64) -> f64 {
     }
 }
 
-// ==============================
-// Full wavefunction ψ
-// ==============================
+// Full wavefunction
 #[wasm_bindgen]
 pub fn psi(n: u32, l: u32, m: i32, r: f64, theta: f64, phi: f64) -> f64 {
     radial(n, l, r) * spherical_harmonic(l, m, theta, phi)
 }
 
-// ==============================
-// Probability density |ψ|²
-// ==============================
+// Probability density |wavefunction|²
 #[wasm_bindgen]
 pub fn probability_density(n: u32, l: u32, m: i32, r: f64, theta: f64, phi: f64) -> f64 {
     let val = psi(n, l, m, r, theta, phi);
     val * val
 }
 
-// ==============================
 // Radial probability P(r)
-// ==============================
 #[wasm_bindgen]
 pub fn radial_probability(n: u32, l: u32, r: f64) -> f64 {
     let r_val = radial(n, l, r);
     r * r * r_val * r_val
 }
 
+// Point sampler -- responsible for actually generating all the points to send to the client.
 #[wasm_bindgen]
 pub fn sample_batch(
     n: u32,
