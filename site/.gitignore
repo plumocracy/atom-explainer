@@ -27,3 +27,4 @@ test-results
 /worker-configuration.d.ts
 
 orbital-math/target
+orbital-math/pkg

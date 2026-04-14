@@ -13,7 +13,7 @@ if ! command -v wasm-pack &>/dev/null; then
 fi
 
 # Build WASM
-wasm-pack build ./orbital-math --release --target bundler --out-dir ./pkg
+wasm-pack build ./orbital-math --release --target web --out-dir ./pkg
 
 # Build site
 bun install

@@ -1,20 +1,21 @@
 import { probabilityDensity } from './orbital';
 import { STATUS_FINISHED, STATUS_PROCESSING, STATUS_ERROR } from '$lib/worker_states';
-import init, { sample_batch, type InitOutput } from '../../pkg/orbital_math.js';
+import init, { sample_batch } from '../../orbital-math/pkg/orbital_math.js';
+import wasmUrl from '../../orbital-math/pkg/orbital_math_bg.wasm?url';
 
 
 declare var self: DedicatedWorkerGlobalScope;
 
-let ready: Promise<InitOutput | null>;
-
-const initWasm = () => {
-	if (!ready) ready = init();
-	return ready;
-};
+let ready: Promise<void> | null = null;
 
 const BATCH_SIZE = 500;   // points per Rust call
 const R_MAX = 20.0;
 const REJECTION_SCALE = 50.0;
+
+const initWasm = () => {
+	if (!ready) ready = init({ module_or_path: wasmUrl }).then(() => { });
+	return ready;
+};
 
 self.onmessage = async (e: MessageEvent) => {
 	await initWasm();

@@ -10,12 +10,25 @@ export default defineConfig({
 	server: {
 		fs: {
 			allow: [
-				resolve(__dirname, 'pkg'),
+				resolve(__dirname, 'orbital-math/pkg'),
 				resolve(__dirname, 'src'),
 			],
 		},
 	},
 	plugins: [tailwindcss(), sveltekit(), wasm(), topLevelAwait()],
+	assetsInclude: ['**/*.wasm'],
+	resolve: {
+		alias: {
+			'@orbital': resolve(__dirname, "./orbital-math/pkg")
+		}
+	},
+	worker: {
+		format: 'es',
+		plugins: () => [wasm(), topLevelAwait()],
+	},
+	build: {
+		target: "esnext"
+	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
