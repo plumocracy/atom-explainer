@@ -111,8 +111,10 @@ pub fn sample_batch(
     let max_attempts = count * 1000;
     let mut attempts = 0;
 
-    while points.len() < (count as usize * 3) && attempts < max_attempts {
-        attempts += 1;
+    while points.len() < (count as usize * 3)
+    /* && attempts < max_attempts */
+    {
+        //attempts += 1;
 
         let r = js_sys::Math::random() * r_max;
         let theta = (1.0 - 2.0 * js_sys::Math::random()).acos();
