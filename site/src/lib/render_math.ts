@@ -4,7 +4,6 @@ export type vector3 = {
 	z: number,
 }
 
-
 /** returns the difference between two vector3's */
 export function subtractV3(a: vector3, b: vector3): vector3 {
 	return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
