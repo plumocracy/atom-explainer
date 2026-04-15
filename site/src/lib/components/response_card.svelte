@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fade } from 'svelte/transition';
 	const { n, l, m, message } = $props();
 	const values = [
 		{
@@ -27,6 +28,7 @@
 <button
 	class="text-md mt-auto flex h-fit w-full flex-col rounded-sm bg-zinc-800 p-2 transition-all duration-300 ease-out hover:-translate-y-1 hover:cursor-pointer hover:shadow-md hover:shadow-zinc-950"
 	onclick={() => {}}
+	in:fade={{ duration: 100 }}
 >
 	<!-- Altered values portion -->
 	{#if displayValues()}

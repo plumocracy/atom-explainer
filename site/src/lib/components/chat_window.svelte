@@ -2,13 +2,19 @@
 	import Icon from '@iconify/svelte';
 	import { signOut } from '$lib/auth-client';
 	import { goto } from '$app/navigation';
+	import type { ActionData } from '../../routes/$types';
+	import type { User } from 'better-auth';
 	import { enhance } from '$app/forms';
 	import { orbitalState } from '$lib/stores/obital.svelte';
 	import type { ModelResponse } from '$lib/server/openrouter';
 	import ResponseCard from './response_card.svelte';
 
-	let { show_chat, user, do_close, form }: { show_chat: boolean; user; do_close: () => void } =
-		$props();
+	let {
+		show_chat,
+		user,
+		do_close,
+		form
+	}: { show_chat: boolean; user: User; do_close: () => void; form: ActionData } = $props();
 
 	let textarea: HTMLTextAreaElement;
 	let wrapper: HTMLDivElement;
@@ -17,7 +23,6 @@
 	let pushElementHidden = $state<boolean>(false);
 
 	let messageSent = $state<boolean>(false);
-
 	let responses = $state<ModelResponse[]>();
 
 	const promptMessages: string[] = [
@@ -38,6 +43,12 @@
 		// Reload page after signout
 		window.location.reload();
 	}
+
+	$effect(() => {
+		if (form?.success && !messageSent) {
+			messageSent = true;
+		}
+	});
 </script>
 
 <div class="flex h-full w-full flex-col space-y-4 text-zinc-300">
@@ -102,9 +113,7 @@
 						? 'pointer-events-none overflow-hidden opacity-0'
 						: 'opacity-100'}"
 				>
-					<h1 class="text-center text-2xl">
-						{promptMessages[Math.floor(Math.random() * promptMessages.length)]}
-					</h1>
+					<h1 class="text-center text-2xl">Funny Text</h1>
 				</div>
 			{/if}
 
@@ -126,13 +135,13 @@
 					<button
 						class="mt-auto flex h-full items-center justify-center rounded-full text-5xl hover:cursor-pointer hover:text-zinc-100"
 						type="submit"
-						onclick={() => {
-							messageSent = true;
-						}}
 						onsubmit={() => {
 							textarea.value = '';
 						}}
 					>
+						<input type="number" name="n" value={orbitalState.n} class="hidden" />
+						<input type="number" name="l" value={orbitalState.l} class="hidden" />
+						<input type="number" name="m" value={orbitalState.m} class="hidden" />
 						<Icon icon="iconamoon:arrow-up-5-circle-fill"></Icon>
 					</button>
 				</form>
