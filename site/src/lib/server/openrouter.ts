@@ -35,7 +35,8 @@ export const ModelErrorSchema = z.object({
 export const ChatResponseSchema = z.object({
 	success: z.literal(true),
 	newSimulationValues: SimulationValuesSchema,
-	message: z.string()
+	message: z.string(),
+	role: z.enum(["user", "assistant"])
 })
 
 export const ChatErrorSchema = z.object({

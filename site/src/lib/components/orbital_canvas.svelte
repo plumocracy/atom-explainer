@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { orbitalState } from '$lib/stores/obital.svelte';
 	import { perspective, lookAt } from '$lib/render_math';
+	import { simulationValues } from '$lib/chat.svelte';
 
 	import {
 		STATUS_FINISHED,
@@ -58,20 +58,20 @@
 	let nMax = 5;
 	let nMin = 1;
 
-	let n = $derived(orbitalState.n);
-	let l = $derived(orbitalState.l);
-	let m = $derived(orbitalState.m);
+	let n = $derived(simulationValues.n);
+	let l = $derived(simulationValues.l);
+	let m = $derived(simulationValues.m);
 
 	// Clamp l into [0, n-1] when n changes.
 	$effect(() => {
-		const maxL = orbitalState.n - 1;
-		if (orbitalState.l > maxL) orbitalState.l = maxL;
+		const maxL = simulationValues.n - 1;
+		if (simulationValues.l > maxL) simulationValues.l = maxL;
 	});
 
 	// Clamp m into [-l, l] when l changes.
 	$effect(() => {
-		if (orbitalState.m > orbitalState.l) orbitalState.m = orbitalState.l;
-		if (orbitalState.m < -orbitalState.l) orbitalState.m = -orbitalState.l;
+		if (simulationValues.m > simulationValues.l) simulationValues.m = simulationValues.l;
+		if (simulationValues.m < -simulationValues.l) simulationValues.m = -simulationValues.l;
 	});
 
 	// Debounce worker restarts on quantum number changes.
@@ -191,7 +191,7 @@ void main() {
 		if (window.Worker) {
 			const OrbitalWorker = await import('../orbital.worker.ts?worker');
 			worker = new OrbitalWorker.default();
-			startWorker(orbitalState.n, orbitalState.l, orbitalState.m);
+			startWorker(simulationValues.n, simulationValues.l, simulationValues.m);
 
 			worker.onmessage = (
 				e: MessageEvent<{
@@ -318,25 +318,31 @@ void main() {
 		class="absolute top-5 left-5 flex flex-col space-y-5 sm:top-10 sm:left-10 sm:text-xl md:top-10 md:left-10 md:text-2xl"
 	>
 		<div class="flex flex-col space-y-2">
-			<span>n: {orbitalState.n}</span>
-			<input type="range" min={nMin} max={nMax} step="1" bind:value={orbitalState.n} />
+			<span>n: {simulationValues.n}</span>
+			<input type="range" min={nMin} max={nMax} step="1" bind:value={simulationValues.n} />
 		</div>
 
-		{#if orbitalState.n > 1}
+		{#if simulationValues.n > 1}
 			<div class="flex flex-col space-y-2">
-				<span>l: {orbitalState.l}</span>
-				<input type="range" min="0" max={orbitalState.n - 1} step="1" bind:value={orbitalState.l} />
+				<span>l: {simulationValues.l}</span>
+				<input
+					type="range"
+					min="0"
+					max={simulationValues.n - 1}
+					step="1"
+					bind:value={simulationValues.l}
+				/>
 			</div>
 
-			{#if orbitalState.l > 0}
+			{#if simulationValues.l > 0}
 				<div class="flex flex-col space-y-2">
-					<span>m: {orbitalState.m}</span>
+					<span>m: {simulationValues.m}</span>
 					<input
 						type="range"
-						min={-orbitalState.l}
-						max={orbitalState.l}
+						min={-simulationValues.l}
+						max={simulationValues.l}
 						step="1"
-						bind:value={orbitalState.m}
+						bind:value={simulationValues.m}
 					/>
 				</div>
 			{/if}

@@ -1,164 +1,176 @@
 <script lang="ts">
+	import { chatMessages, simulationValues } from '$lib/chat.svelte';
 	import Icon from '@iconify/svelte';
-	import { signOut } from '$lib/auth-client';
-	import { goto } from '$app/navigation';
-	import type { ActionData } from '../../routes/$types';
-	import type { User } from 'better-auth';
-	import { enhance } from '$app/forms';
-	import { orbitalState } from '$lib/stores/obital.svelte';
-	import type { ModelResponse } from '$lib/server/openrouter';
 	import ResponseCard from './response_card.svelte';
 
-	let {
-		show_chat,
-		user,
-		do_close,
-		form
-	}: { show_chat: boolean; user: User; do_close: () => void; form: ActionData } = $props();
+	let { show_chat, user, do_close } = $props();
 
-	let textarea: HTMLTextAreaElement;
-	let wrapper: HTMLDivElement;
-	let pushElement: HTMLDivElement;
+	let input = $state('');
+	let loading = $state(false);
+	let error = $state<string | null>(null);
+	let textareaEl = $state<HTMLTextAreaElement | null>(null);
 
-	let pushElementHidden = $state<boolean>(false);
+	async function send() {
+		const message = input.trim();
+		if (!message || loading) return;
 
-	let messageSent = $state<boolean>(false);
-	let responses = $state<ModelResponse[]>();
+		input = '';
+		loading = true;
+		error = null;
 
-	const promptMessages: string[] = [
-		'What do you want to learn today?',
-		'Ready to get quantum?',
-		'Are you bohr-ed yet?'
-	];
+		const tempId = `temp-${crypto.randomUUID()}`;
+		chatMessages.push({ id: tempId, role: 'user' as const, content: message });
+		chatMessages.push({
+			id: crypto.randomUUID(),
+			role: 'assistant' as const,
+			content: '',
+			pending: true
+		});
 
-	function resize() {
-		textarea.style.height = '0px';
-		const newHeight = Math.max(textarea.scrollHeight, 40);
-		textarea.style.height = newHeight + 'px';
-		wrapper.style.height = newHeight + 16 + 'px';
-	}
+		const assistantIndex = chatMessages.length - 1;
 
-	async function handleSignOut() {
-		await signOut();
-		// Reload page after signout
-		window.location.reload();
-	}
+		try {
+			const response = await fetch('/api/chat/v1', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ message, currentSimulationValues: simulationValues })
+			});
 
-	$effect(() => {
-		if (form?.success && !messageSent) {
-			messageSent = true;
+			const reader = response.body!.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() ?? '';
+
+				for (const line of lines) {
+					if (!line.startsWith('data: ')) continue;
+					const data = line.slice(6).trim();
+					if (!data || data === '[DONE]') continue;
+					try {
+						const event = JSON.parse(data);
+
+						if (event.type === 'token') {
+							chatMessages[assistantIndex].content += event.token;
+
+							// check if we have a complete params sentinel yet
+							const content = chatMessages[assistantIndex].content;
+							const paramsMatch = content.match(/<params>(.*?)<\/params>/s);
+							if (paramsMatch) {
+								// update simulation immediately
+								try {
+									const params = paramsMatch[1] === 'null' ? null : JSON.parse(paramsMatch[1]);
+									if (params) {
+										simulationValues.n = params.n;
+										simulationValues.l = params.l;
+										simulationValues.m = params.m;
+									}
+								} catch {
+									/* malformed */
+								}
+
+								// strip sentinel so user never sees it
+								chatMessages[assistantIndex].content = content
+									.replace(/<params>.*?<\/params>/s, '')
+									.trimStart();
+							} else {
+								// sentinel not complete yet, hide it while it's building
+								chatMessages[assistantIndex].content = content.replace(/<params>.*$/s, '');
+							}
+						} else if (event.type === 'done') {
+							const userIndex = chatMessages.findIndex((m) => m.id === tempId);
+							if (userIndex !== -1) chatMessages[userIndex].id = event.userMessageId;
+							chatMessages[assistantIndex].id = event.assistantMessageId;
+							chatMessages[assistantIndex].content = event.message;
+							chatMessages[assistantIndex].pending = false;
+
+							if (event.params) {
+								simulationValues.n = event.params.n;
+								simulationValues.l = event.params.l;
+								simulationValues.m = event.params.m;
+							}
+						} else if (event.type === 'error') {
+							error = event.error;
+							chatMessages.pop();
+							chatMessages.pop();
+						}
+					} catch {
+						/* skip malformed */
+					}
+				}
+			}
+		} catch (e) {
+			error = String(e);
+			chatMessages.pop();
+			chatMessages.pop();
+		} finally {
+			loading = false;
 		}
-	});
+	}
+
+	function onKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			send();
+		}
+	}
+
+	function onInput() {
+		if (!textareaEl) return;
+		textareaEl.style.height = 'auto';
+		textareaEl.style.height = `${textareaEl.scrollHeight}px`;
+	}
 </script>
 
-<div class="flex h-full w-full flex-col space-y-4 text-zinc-300">
-	<div
-		class="transition-100 flex h-16 w-full flex-row transition-opacity {show_chat
-			? 'opacity-100'
-			: 'opacity-0'}"
-	>
-		{#if user}
-			<div class="flex flex-row space-x-4">
-				<image src={user.image} class="my-auto ml-5 h-8 rounded-full"></image>
-				<button
-					class="text-md my-auto flex hover:cursor-pointer hover:text-zinc-100"
-					onclick={handleSignOut}
-				>
-					Sign Out
-				</button>
-			</div>
-		{:else}
-			<div class="my-auto ml-5 flex text-xl">
-				<button class="hover:cursor-pointer hover:text-zinc-100" onclick={() => goto('/login')}>
-					<span>Sign In</span>
-				</button>
-			</div>
-		{/if}
-
+<div class="flex h-full w-full flex-col text-zinc-300">
+	<div class="flex h-14 w-full flex-row">
+		<div class="mr-auto flex h-full flex-row space-x-4 pl-4">
+			<img src={user.image} class="my-auto h-10 rounded-full" />
+			<span class="my-auto">{user.name}</span>
+		</div>
 		<button
-			class="my-auto mr-4 ml-auto text-4xl hover:cursor-pointer hover:text-zinc-100"
-			onclick={do_close}
+			class="my-auto pr-4 text-4xl hover:cursor-pointer hover:text-zinc-100"
+			onclick={() => do_close()}
 		>
-			<Icon icon="ic:baseline-close"></Icon>
+			<Icon icon="material-symbols:close" />
 		</button>
 	</div>
+	<hr />
+	<div class="flex-1 space-y-4 overflow-y-auto p-4">
+		{#each chatMessages as msg (msg.id)}
+			<ResponseCard message={msg} {user} />
+		{/each}
+	</div>
 
-	<div
-		class="flex h-full w-full flex-col bg-zinc-900 px-4 pb-4 text-zinc-300 transition-opacity duration-400"
-	>
-		<!-- Element used to achieve smooth transition of message box, get's removed from DOM 
-		 after animation concludes. -->
+	{#if error}
+		<p class="px-4 text-sm text-red-500">{error}</p>
+	{/if}
+	<div class="transition-100 mb-4 flex w-full px-4 transition-[height]">
 		<div
-			bind:this={pushElement}
-			class="transition-all duration-300 ease-in-out {messageSent ? 'flex-1' : 'flex-[0.5]'}"
-			ontransitionend={() => {
-				pushElement.style.visibility = 'hidden';
-				pushElementHidden = true;
-			}}
-		></div>
-
-		<!-- Response Div -->
-
-		{#if pushElementHidden}
-			<div class="mb-4 flex h-full w-full">
-				<ResponseCard n={1} l={0} m={0} message={'This is my awesome message'} />
-			</div>
-		{/if}
-
-		<!-- Message Box and animation harness -->
-		<div class="flex flex-col gap-3">
-			{#if !pushElementHidden}
-				<div
-					class="mb-10 transition-all duration-100 ease-in-out {messageSent
-						? 'pointer-events-none overflow-hidden opacity-0'
-						: 'opacity-100'}"
-				>
-					<h1 class="text-center text-2xl">Funny Text</h1>
-				</div>
-			{/if}
-
-			<div
-				bind:this={wrapper}
-				style="height: 56px"
-				class="flex w-full gap-2 overflow-hidden rounded-3xl bg-zinc-800 p-2 text-zinc-300 transition-[height] duration-100 ease-out"
-			>
-				<form class="flex w-full" method="POST" action="?/chat" use:enhance>
-					<textarea
-						bind:this={textarea}
-						oninput={resize}
-						onkeyup={resize}
-						name="message"
-						rows="1"
-						placeholder="Ask Atom AI"
-						class="ring-none flex-1 resize-none overflow-hidden border-none bg-transparent px-3 py-2 outline-none placeholder:text-zinc-500 focus:ring-0"
-					></textarea>
-					<button
-						class="mt-auto flex h-full items-center justify-center rounded-full text-5xl hover:cursor-pointer hover:text-zinc-100"
-						type="submit"
-						onsubmit={() => {
-							textarea.value = '';
-						}}
-					>
-						<input type="number" name="n" value={orbitalState.n} class="hidden" />
-						<input type="number" name="l" value={orbitalState.l} class="hidden" />
-						<input type="number" name="m" value={orbitalState.m} class="hidden" />
-						<Icon icon="iconamoon:arrow-up-5-circle-fill"></Icon>
-					</button>
-				</form>
-			</div>
-			<div class="mx-auto flex text-red-500">
-				{#if form?.error}
-					<p class="">{form?.error}</p>
+			class="transition-[height, padding] transition-100 flex w-full gap-2 rounded-full bg-zinc-800 p-4"
+		>
+			<textarea
+				bind:this={textareaEl}
+				bind:value={input}
+				rows="1"
+				disabled={loading}
+				oninput={onInput}
+				onkeydown={onKeydown}
+				placeholder="Ask about atomic orbitals..."
+				class="transition-100 my-auto flex-1 resize-none border-0 bg-zinc-800 ring-0 transition-[height] focus:border-0 focus:ring-0"
+			/>
+			<button onclick={send} disabled={loading || !input.trim()} class="text-5xl">
+				{#if loading}
+					<Icon icon="eos-icons:atom-electron" class="animate-pulse" />
+				{:else}
+					<Icon icon="solar:round-arrow-up-bold" class="hover:cursor-pointer hover:text-zinc-100" />
 				{/if}
-
-				{#if form?.missing}
-					<p class="">{form?.missing}</p>
-				{/if}
-			</div>
-
-			<div
-				class="transition-all duration-300 ease-in-out {messageSent ? 'flex-[0]' : 'flex-[0.5]'}"
-			></div>
+			</button>
 		</div>
 	</div>
 </div>

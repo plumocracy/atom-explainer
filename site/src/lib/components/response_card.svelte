@@ -1,48 +1,96 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
+	import type { Message } from '$lib/chat.svelte';
 	import { fade } from 'svelte/transition';
-	const { n, l, m, message } = $props();
-	const values = [
-		{
-			id: 'n',
-			value: n
-		},
-		{
-			id: 'l',
-			value: l
-		},
-		{
-			id: 'm',
-			value: m
-		}
-	];
 
-	function displayValues(): boolean {
-		if (n != 0) {
-			return true;
+	let { message }: { message: Message } = $props();
+
+	let displayed = $state('');
+	let typing = $state(false);
+
+	let interval: ReturnType<typeof setInterval> | null = null;
+
+	let committedLength = 0;
+	let initialized = false;
+
+	onMount(() => {
+		initialized = true;
+
+		displayed = message.role === 'user' ? message.content : '';
+		committedLength = message.role === 'user' ? message.content.length : 0;
+	});
+
+	$effect(() => {
+		if (!message.content) return;
+
+		if (message.role === 'user') {
+			stopTyping();
+			displayed = message.content;
+			committedLength = message.content.length;
+			return;
 		}
-		return false;
+
+		if (message.content.length > committedLength) {
+			startTyping(message.content);
+		}
+	});
+
+	function startTyping(full: string) {
+		if (typing) return;
+
+		typing = true;
+
+		interval = setInterval(() => {
+			if (committedLength < full.length) {
+				displayed += full[committedLength];
+				committedLength++;
+			} else {
+				stopTyping();
+			}
+		}, 15);
 	}
+
+	function stopTyping() {
+		typing = false;
+		if (interval) clearInterval(interval);
+		interval = null;
+	}
+
+	onDestroy(stopTyping);
 </script>
 
-<!-- TODO: Set simulation values on click if the values are different. -->
-<button
-	class="text-md mt-auto flex h-fit w-full flex-col rounded-sm bg-zinc-800 p-2 transition-all duration-300 ease-out hover:-translate-y-1 hover:cursor-pointer hover:shadow-md hover:shadow-zinc-950"
-	onclick={() => {}}
-	in:fade={{ duration: 100 }}
->
-	<!-- Altered values portion -->
-	{#if displayValues()}
-		<div class="text-md flex w-full flex-row space-x-5">
-			{#each values as v}
-				<div class="flex flex-row">
-					<span>{v.id}:{v.value}</span>
-				</div>
-			{/each}
+<div class="flex w-full">
+	<button
+		class="flex flex-row rounded-sm {message.role == 'user'
+			? 'ml-auto max-w-2/3 bg-zinc-800 text-left'
+			: 'text-left'}"
+		in:fade
+	>
+		<div class="flex flex-col rounded-lg px-4 py-2">
+			{#if message.pending && !displayed}
+				<span class="opacity-50">...</span>
+			{:else}
+				<span>
+					{displayed}
+					{#if message.pending || typing}
+						<span class="cursor">|</span>
+					{/if}
+				</span>
+			{/if}
 		</div>
-		<hr class="text-zinc-500" />
-	{/if}
-	<!-- Message -->
-	<div class="{displayValues() ? 'mt-2' : ''} flex">
-		<p>{message}</p>
-	</div>
-</button>
+	</button>
+</div>
+
+<style>
+	.cursor {
+		display: inline-block;
+		margin-left: 2px;
+		animation: blink 1s steps(2, start) infinite;
+	}
+
+	@keyframes blink {
+		to {
+			visibility: hidden;
+		}
+	}
+</style>

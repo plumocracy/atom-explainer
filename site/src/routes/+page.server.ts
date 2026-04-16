@@ -112,10 +112,10 @@ export const actions = {
 
 			return {
 				success: true,
+				role: 'assistant',
 				newSimulationValues: result.params,
 				message: result.message
 			}
-
 		} catch (e) {
 			return { success: false, error: e.message }
 		}

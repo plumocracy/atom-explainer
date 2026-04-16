@@ -63,7 +63,7 @@
 
 {#if chatEnabled}
 	<button
-		class="transition-200 absolute top-10 right-10 z-10 flex flex-row items-center justify-center space-x-5 text-2xl text-zinc-300 transition-opacity hover:text-zinc-100 {show_chat
+		class="transition-400 absolute top-10 right-10 z-10 flex flex-row items-center justify-center space-x-5 text-2xl text-zinc-300 transition-opacity hover:text-zinc-100 {show_chat
 			? 'opacity-0'
 			: 'opacity-100'}"
 		onclick={() => (show_chat = !show_chat)}
