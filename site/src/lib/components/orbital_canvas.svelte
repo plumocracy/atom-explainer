@@ -220,7 +220,7 @@ void main() {
 						} else {
 							// Pool is full — update the slot at this index in-place.
 							updateSlot(slots[slotIndex], points);
-							console.log(`Slot ${slotIndex}: ${slots[slotIndex].pointCount}`);
+							//console.log(`Slot ${slotIndex}: ${slots[slotIndex].pointCount}`);
 						}
 
 						incomingSlotIndex++;

@@ -3,16 +3,25 @@
 	import Icon from '@iconify/svelte';
 	import OrbitalCanvas from '$lib/components/orbital_canvas.svelte';
 	import ChatWindow from '$lib/components/chat_window.svelte';
+	import { chatMessages } from '$lib/chat.svelte';
 
 	let { data, form }: PageProps = $props();
 	let show_chat = $state<boolean>(false);
 
-	let { user, chatEnabled } = data;
+	let { user, chatEnabled, messages } = data;
 
 	let panelWidth = $state(600);
 	let dragging = false;
 
 	const panelMinWidth = 450;
+
+	messages?.forEach((msg) => {
+		chatMessages.push({
+			role: msg.role,
+			content: msg.content,
+			live: false
+		});
+	});
 
 	function onDragStart(e: PointerEvent) {
 		dragging = true;

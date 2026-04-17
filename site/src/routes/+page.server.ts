@@ -4,7 +4,8 @@ import { queryModel } from "$lib/server/openrouter";
 import type { ChatResponse, ChatError } from "$lib/server/openrouter";
 import { db } from "$lib/server/db";
 import { conversations, messages, timeouts } from "$lib/server/db/conversations.schema"
-import { and, eq, gt, gte, desc } from "drizzle-orm";
+import { and, eq, gt, gte, desc, sql, asc } from "drizzle-orm";
+import { chatMessages } from "$lib/chat.svelte";
 
 
 function convertRawValueToNumber(n: FormDataEntryValue | null): number {
@@ -13,7 +14,35 @@ function convertRawValueToNumber(n: FormDataEntryValue | null): number {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const { user } = locals;
-	return { user, chatEnabled: env.FLAG_CHAT_ENABLED == "TRUE" }
+
+	// get conversation if exists.
+	let [conversation] = await db
+		.select()
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.userId, user.id),
+				gte(conversations.updatedAt, sql`now() - interval '15 minutes'`)
+			)
+		)
+		.orderBy(desc(conversations.updatedAt))
+		.limit(1)
+
+	let prevMessages;
+	if (conversation) {
+		prevMessages = await db.select(
+			{
+				role: messages.role,
+				content: messages.content,
+			}
+		).from(messages).where(
+			and(eq(messages.userId, user.id), eq(messages.conversationId, conversation.id))
+		).orderBy(asc(messages.createdAt));
+
+	}
+	// Load previous messages and append them to chat.
+
+	return { user, chatEnabled: env.FLAG_CHAT_ENABLED == "TRUE", messages: prevMessages }
 }
 
 

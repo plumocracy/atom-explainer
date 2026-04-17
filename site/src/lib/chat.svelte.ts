@@ -3,10 +3,11 @@ import { z } from 'zod';
 export const SimulationValuesSchema = z.object({ n: z.number(), l: z.number(), m: z.number() });
 
 export type Message = {
-	id: string;
+	id?: string;
 	role: 'user' | 'assistant';
 	content: string;
 	pending?: boolean,
+	live?: boolean
 	simValues?: { n: number, l: number, m: number }
 };
 
