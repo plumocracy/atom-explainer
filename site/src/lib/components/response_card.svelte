@@ -2,7 +2,7 @@
 	import type { Message } from '$lib/chat.svelte';
 	import { fade } from 'svelte/transition';
 
-	let { message }: { message: Message } = $props();
+	let { message = $bindable() }: { message: Message } = $props();
 
 	let displayed = $state('');
 	let queue = '';

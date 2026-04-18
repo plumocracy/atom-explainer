@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const SimulationValuesSchema = z.object({ n: z.number(), l: z.number(), m: z.number() });
 
 export type Message = {
-	id?: string;
+	id: number;
 	role: 'user' | 'assistant';
 	content: string;
 	pending?: boolean,

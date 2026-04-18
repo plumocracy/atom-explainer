@@ -27,7 +27,7 @@ export const messages = pgTable(
 		role: text('role', { enum: ["user", "assistant"] }).notNull(),
 		content: text('content').notNull(),
 		simulationValues: text('simulation_values'),
-		model: text('model', { enum: ["deepseek 3.2"] }).notNull(),
+		model: text('model', { enum: ["deepseek-3.2", "gemma-4-31b-it:free"] }).notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		responseAt: timestamp('response_at', { withTimezone: true })
 	},

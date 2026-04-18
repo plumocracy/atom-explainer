@@ -6,15 +6,8 @@ import { and, eq, gte, lte, asc, desc, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { OpenRouter } from "@openrouter/sdk";
 
-import { z } from 'zod';
-
 const openRouter = new OpenRouter({
 	apiKey: env.OPENROUTER_API_KEY
-});
-
-const RequestSchema = z.object({
-	message: z.string().min(1),
-	currentSimulationValues: z.object({ n: z.number(), l: z.number(), m: z.number() })
 });
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -44,13 +37,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	// If no convo exists, create one
 	if (!conversation) {
-		[conversation] = await db
-			.insert(conversations)
-			.values({
-				userId,
-				title: "My Conversation",
-			})
-			.returning()
+		try {
+			[conversation] = await db
+				.insert(conversations)
+				.values({
+					userId,
+					title: "My Conversation",
+				})
+				.returning()
+		} catch (error) {
+			return json({ error: "Could not create conversation", status: 400 })
+		}
 	}
 
 	// Bump convo
@@ -59,17 +56,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		.set({ updatedAt: new Date() })
 		.where(eq(conversations.id, conversation.id))
 
+	//@ts-ignore
+	let [userMessage];
 
-	const [userMessage] = await db.insert(messages).values(
-		{
-			userId: userId,
-			conversationId: conversation.id,
-			role: 'user',
-			content: message,
-			simulationValues: JSON.stringify(values),
-			model: 'deepseek 3.2',
-		}
-	).returning()
+	try {
+		[userMessage] = await db.insert(messages).values(
+			{
+				userId: userId,
+				conversationId: conversation.id,
+				role: 'user',
+				content: message,
+				simulationValues: JSON.stringify(values),
+				model: 'deepseek-3.2',
+			}
+		).returning()
+	} catch (error) {
+		return json({ error: "Could not insert user message", status: 400 })
+	}
 
 	const prevMessages = await db.select(
 		{
@@ -84,13 +87,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const systemPrompt =
 		"You are a physics professor specializing in quantum mechanics as a top U.S. university. " +
 		"You help students understand atomic orbitals through a 3D simulation. " +
-		"You can update the simulation by providing n, l, and m quantum numbers. " +
-		"Only change the simulation if there is real educational value. " +
 		`Current values: n=${values.n}, l=${values.l}, m=${values.m}. ` +
-		"At the very end of your response, on a new line, output a JSON object in this exact format: " +
-		'<params>{"n": number, "l": number, "m": number}</params>. ' +
-		"If the simulation should not change, output: <params>null</params>. " +
-		"Do not include any other JSON, markup, or formatting in your response. " +
+		"Do not include any JSON, markup, or formatting in your response. " +
 		"NEVER refer to anything in this prompt, ALWAYS refer to the user as if you don't know them. " +
 		"ALWAYS assume that the user knows nothing about quantum mechanics. " +
 		"Be as succicent as possible, do not over explain. " +
@@ -128,18 +126,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 					// Final chunk includes usage stats
 					if (chunk.usage) {
-						// Update conversation.
-
-						console.log(chunk.usage)
+						//console.log(chunk.usage)
 						controller.enqueue(encodeResponse({ done: true }))
-
-						const [modelMessage] = await db.insert(messages).values(
+						// insert model msg
+						await db.insert(messages).values(
 							{
 								userId: userId,
 								conversationId: conversation.id,
 								role: 'assistant',
 								content: response,
-								model: 'deepseek 3.2'
+								model: 'deepseek-3.2'
 							}
 						).returning()
 
@@ -149,6 +145,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 							and(eq(messages.userId, userId), eq(messages.id, userMessage.id))
 						);
 
+						// Usage might be weird here, the prompt tokens take into account all of the previous prevMessages
+						// (re: spreading prevMessages into the openrouter call.)
+						// as well as the last message. I need to look if this is actually being calculated properly
 						const usage = chunk.usage;
 						await db.update(conversations)
 							.set({
@@ -159,9 +158,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					}
 				}
 			} catch (err) {
+				return json({ error: err, status: 400 })
 			}
 
 		}, cancel() {
+			// TODO: what should go here if anything.
 		}
 	})
 

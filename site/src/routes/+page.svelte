@@ -17,6 +17,7 @@
 
 	messages?.forEach((msg) => {
 		chatMessages.push({
+			id: chatMessages.length,
 			role: msg.role,
 			content: msg.content,
 			live: false
