@@ -3,8 +3,9 @@
 	import Icon from '@iconify/svelte';
 	import ResponseCard from './response_card.svelte';
 	import { EventSourcePlus } from 'event-source-plus';
+	import { goto } from '$app/navigation';
 
-	let { show_chat, user, do_close } = $props();
+	let { user, do_close } = $props();
 
 	// NOTE: i'm wondering if maybe theres to much state in here
 
@@ -101,88 +102,103 @@
 	}
 </script>
 
-<div class="flex h-full w-full flex-col text-zinc-300">
-	<div class="flex h-14 w-full flex-row">
-		<div class="mr-auto flex h-full flex-row space-x-4 pl-4">
-			<img src={user.image} alt="profile" class="my-auto h-10 rounded-full" />
-			<span class="my-auto">{user.name}</span>
-		</div>
-		<button
-			class="my-auto pr-4 text-4xl hover:cursor-pointer hover:text-zinc-100"
-			onclick={() => do_close()}
-		>
-			<Icon icon="material-symbols:close" />
-		</button>
-	</div>
-	<hr />
-
-	<!-- Message suggestions -->
-	{#if !messageSent && chatMessages.length == 0}
-		<div class="flex h-full flex-col justify-center">
-			<div class="my-auto flex flex-col items-center space-y-5">
-				<h3 class="text-2xl">Suggestions</h3>
-				{#each messageSuggestions as suggestion}
-					<button
-						class="rounded-full bg-orange-500 p-4 text-zinc-950 hover:cursor-pointer hover:bg-orange-400"
-						onclick={(e) => {
-							e.preventDefault();
-							send(suggestion);
-						}}
-					>
-						{suggestion}
-					</button>
-				{/each}
+{#if user}
+	<div class="flex h-full w-full flex-col text-zinc-300">
+		<div class="flex h-14 w-full flex-row">
+			<div class="mr-auto flex h-full flex-row space-x-4 pl-4">
+				<img src={user.image} alt="profile" class="my-auto h-10 rounded-full" />
+				<span class="my-auto">{user.name}</span>
 			</div>
-		</div>
-	{/if}
-
-	<div class="flex-1 space-y-4 overflow-y-auto p-4">
-		{#each chatMessages as msg (msg.id)}
-			<ResponseCard bind:message={chatMessages[msg.id]} />
-		{/each}
-	</div>
-
-	{#if error}
-		<p class="px-4 text-sm text-red-500">{error}</p>
-	{/if}
-	<div class="transition-100 mb-4 flex w-full px-4 transition-[height]">
-		<div
-			class="transition-[height, padding] transition-100 flex w-full gap-2 rounded-full bg-zinc-800 p-4"
-		>
-			<textarea
-				bind:this={textareaEl}
-				bind:value={input}
-				rows="1"
-				disabled={loading}
-				oninput={onInput}
-				onkeydown={onKeydown}
-				placeholder="Ask about atomic orbitals..."
-				class="transition-100 my-auto flex-1 resize-none border-0 bg-zinc-800 ring-0 transition-[height] focus:border-0 focus:ring-0"
-			></textarea>
 			<button
-				onclick={() => {
-					send();
-				}}
-				disabled={loading || !input.trim()}
-				class="text-5xl"
-				bind:this={sendButtonEl}
+				class="my-auto pr-4 text-4xl hover:cursor-pointer hover:text-zinc-100"
+				onclick={() => do_close()}
 			>
-				{#if loading}
-					<Icon
-						icon="eos-icons:atom-electron"
-						class="animate-pulse {loading
-							? 'opacity-100'
-							: 'opacity-o'} transiton-100 transition-opacity"
-					/>
-				{:else}
-					<Icon
-						icon="solar:round-arrow-up-bold"
-						class="hover:cursor-pointer hover:text-zinc-100 {loading
-							? 'opacity-0'
-							: 'opacity-100'} transition-100 transition-opacity"
-					/>
-				{/if}
+				<Icon icon="material-symbols:close" />
 			</button>
 		</div>
+		<hr />
+
+		<!-- Message suggestions -->
+		{#if !messageSent && chatMessages.length == 0}
+			<div class="flex h-full flex-col justify-center">
+				<div class="my-auto flex flex-col items-center space-y-5">
+					<h3 class="text-2xl">Suggestions</h3>
+					{#each messageSuggestions as suggestion}
+						<button
+							class="rounded-full bg-orange-500 p-4 text-zinc-950 hover:cursor-pointer hover:bg-orange-400"
+							onclick={(e) => {
+								e.preventDefault();
+								send(suggestion);
+							}}
+						>
+							{suggestion}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
+
+		<div class="flex-1 space-y-4 overflow-y-auto p-4">
+			{#each chatMessages as msg (msg.id)}
+				<ResponseCard bind:message={chatMessages[msg.id]} />
+			{/each}
+		</div>
+
+		{#if error}
+			<p class="px-4 text-sm text-red-500">{error}</p>
+		{/if}
+		<div class="transition-100 mb-4 flex w-full px-4 transition-[height]">
+			<div
+				class="transition-[height, padding] transition-100 flex w-full gap-2 rounded-full bg-zinc-800 p-4"
+			>
+				<textarea
+					bind:this={textareaEl}
+					bind:value={input}
+					rows="1"
+					disabled={loading}
+					oninput={onInput}
+					onkeydown={onKeydown}
+					placeholder="Ask about atomic orbitals..."
+					class="transition-100 my-auto flex-1 resize-none border-0 bg-zinc-800 ring-0 transition-[height] focus:border-0 focus:ring-0"
+				></textarea>
+				<button
+					onclick={() => {
+						send();
+					}}
+					disabled={loading || !input.trim()}
+					class="text-5xl"
+					bind:this={sendButtonEl}
+				>
+					{#if loading}
+						<Icon
+							icon="eos-icons:atom-electron"
+							class="animate-pulse {loading
+								? 'opacity-100'
+								: 'opacity-o'} transiton-100 transition-opacity"
+						/>
+					{:else}
+						<Icon
+							icon="solar:round-arrow-up-bold"
+							class="hover:cursor-pointer hover:text-zinc-100 {loading
+								? 'opacity-0'
+								: 'opacity-100'} transition-100 transition-opacity"
+						/>
+					{/if}
+				</button>
+			</div>
+		</div>
 	</div>
-</div>
+{:else}
+	<div class="flex h-full w-full items-center justify-center text-zinc-300">
+		<div>
+			<h2 class="text-center text-2xl">
+				<button
+					class="underline hover:cursor-pointer hover:text-zinc-100"
+					onclick={() => {
+						goto('/login');
+					}}>Sign in</button
+				> to chat with Atom AI
+			</h2>
+		</div>
+	</div>
+{/if}

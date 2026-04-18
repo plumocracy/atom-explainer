@@ -56,21 +56,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		.set({ updatedAt: new Date() })
 		.where(eq(conversations.id, conversation.id))
 
-	//@ts-ignore
-	let [userMessage];
+	const [userMessage] = await db.insert(messages).values(
+		{
+			userId: userId,
+			conversationId: conversation.id,
+			role: 'user',
+			content: message,
+			simulationValues: JSON.stringify(values),
+			model: 'deepseek-3.2',
+		}
+	).returning()
 
-	try {
-		[userMessage] = await db.insert(messages).values(
-			{
-				userId: userId,
-				conversationId: conversation.id,
-				role: 'user',
-				content: message,
-				simulationValues: JSON.stringify(values),
-				model: 'deepseek-3.2',
-			}
-		).returning()
-	} catch (error) {
+	if (!userMessage) {
 		return json({ error: "Could not insert user message", status: 400 })
 	}
 
