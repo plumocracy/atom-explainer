@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
 	import { signIn, signOut, type Provider } from '$lib/auth-client';
+	import { showErrorToast } from '$lib/toast.svelte';
 
 	let { loginPrompt, user } = $props();
 
@@ -23,6 +24,7 @@
 		const result = await signIn(provider);
 		if (!result.success) {
 			errorMessage = result.error;
+			showErrorToast(result.error, 'Sign in failed');
 		}
 	}
 </script>

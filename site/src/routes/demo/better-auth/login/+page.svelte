@@ -1,8 +1,26 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { ActionData } from './$types';
+	import { showErrorToast } from '$lib/toast.svelte';
 
 	let { form }: { form: ActionData } = $props();
+
+	let lastToastRequestId = $state<string | null>(null);
+
+	$effect(() => {
+		const error = form?.error;
+		if (!error) {
+			return;
+		}
+
+		const toastKey = `${error.requestId ?? 'no-request'}:${error.message}`;
+		if (lastToastRequestId === toastKey) {
+			return;
+		}
+
+		lastToastRequestId = toastKey;
+		showErrorToast(error, 'Authentication failed');
+	});
 </script>
 
 <h1>Login</h1>
@@ -39,4 +57,6 @@
 		>Register</button
 	>
 </form>
-<p class="text-red-500">{form?.message ?? ''}</p>
+{#if form?.error}
+	<p class="mt-4 text-red-400">{form.error.message}</p>
+{/if}

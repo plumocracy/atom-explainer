@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, index, check } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, integer, timestamp, index, check, jsonb, uniqueIndex } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { user } from './auth.schema'
 
@@ -55,8 +55,30 @@ export const timeouts = pgTable(
 	]
 )
 
+export const messageToolCalls = pgTable(
+	'message_tool_calls',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		messageId: uuid('message_id').notNull().references(() => messages.id, { onDelete: 'cascade' }),
+		providerCallId: text('provider_call_id'),
+		callIndex: integer('call_index').notNull(),
+		toolType: text('tool_type', { enum: ['function'] }).notNull().default('function'),
+		toolName: text('tool_name').notNull(),
+		argumentsRaw: text('arguments_raw').notNull(),
+		argumentsJson: jsonb('arguments_json'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		index('message_tool_calls_message_id_idx').on(table.messageId),
+		index('message_tool_calls_tool_name_idx').on(table.toolName),
+		uniqueIndex('message_tool_calls_message_id_call_index_uq').on(table.messageId, table.callIndex),
+	]
+)
+
 // Inferred types
 export type Conversation = typeof conversations.$inferSelect
 export type NewConversation = typeof conversations.$inferInsert
 export type Message = typeof messages.$inferSelect
 export type NewMessage = typeof messages.$inferInsert
+export type MessageToolCall = typeof messageToolCalls.$inferSelect
+export type NewMessageToolCall = typeof messageToolCalls.$inferInsert

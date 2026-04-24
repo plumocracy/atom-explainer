@@ -2,7 +2,7 @@
 	import type { Message } from '$lib/chat.svelte';
 	import { fade } from 'svelte/transition';
 
-	let { message = $bindable() }: { message: Message } = $props();
+	let { message }: { message: Message } = $props();
 
 	let displayed = $state('');
 	let queue = '';
@@ -27,7 +27,6 @@
 		// grab only the new characters since last effect run
 		const newChars = incoming.slice(displayed.length + queue.length);
 		if (!newChars) {
-			message.live = false;
 			return;
 		}
 		queue += newChars;
@@ -38,26 +37,19 @@
 	});
 </script>
 
-<div class="flex w-full">
-	<button
-		class="flex flex-row rounded-sm {message.role == 'user'
-			? 'ml-auto max-w-2/3 bg-zinc-800 text-left shadow-lg shadow-zinc-900'
-			: 'text-left'}"
-		in:fade
+<div class="flex w-full" in:fade>
+	<article
+		class="rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm {message.role === 'user'
+			? 'ml-auto max-w-[82%] border-[rgba(39,80,86,0.36)] bg-[rgba(39,80,86,0.14)] text-[var(--museum-text)]'
+			: 'max-w-[92%] border-[var(--museum-stroke)] bg-[rgba(255,255,255,0.62)] text-[var(--museum-text)]'}"
 	>
-		<div class="flex flex-col rounded-lg px-4 py-2">
-			<!-- {#if message.pending} -->
-			<!-- 	<span class="opacity-50">...</span> -->
-			<!-- {:else} -->
-			<span>
-				{displayed}
-				{#if message.pending}
-					<span class="cursor">|</span>
-				{/if}
-			</span>
-			<!-- {/if} -->
-		</div>
-	</button>
+		<p>
+			{displayed}
+			{#if message.pending}
+				<span class="cursor">|</span>
+			{/if}
+		</p>
+	</article>
 </div>
 
 <style>
