@@ -2,11 +2,13 @@ import { EventSourcePlus } from 'event-source-plus';
 import { showErrorToast } from '$lib/toast.svelte';
 import {
 	createChatMessage,
+	getBohrShellDistribution,
 	queueOrbitalCameraMove,
 	type CameraTarget,
 	type Message,
 	type SimulationValues,
-	type ToolCallMessage
+	type ToolCallMessage,
+	type VisualizationMode
 } from '$lib/chat.svelte';
 
 type StreamToolCall = {
@@ -22,6 +24,8 @@ type StreamToolCall = {
 type UseChatStreamOptions = {
 	chatMessages: Message[];
 	simulationValues: SimulationValues;
+	bohrSimulationValues: { atomicNumber: number };
+	visualizationState: { mode: VisualizationMode };
 	setLoading: (next: boolean) => void;
 	setToolCalling?: (next: boolean) => void;
 };
@@ -90,12 +94,15 @@ const applySimulationToolCalls = (value: unknown, simulationValues: SimulationVa
 					x,
 					y,
 					z,
-					durationMs: typeof durationMs === 'number' ? durationMs : undefined,
+					durationMs: typeof durationMs === 'number' ? durationMs : undefined
 				};
 			}
 		}
 
-		if ((toolName === 'set_simulation_params' || toolName === 'set_simulation_values') && parsedSimulationValues) {
+		if (
+			(toolName === 'set_simulation_params' || toolName === 'set_simulation_values') &&
+			parsedSimulationValues
+		) {
 			simulationValues.n = parsedSimulationValues.n;
 			simulationValues.l = parsedSimulationValues.l;
 			simulationValues.m = parsedSimulationValues.m;
@@ -112,7 +119,7 @@ const applySimulationToolCalls = (value: unknown, simulationValues: SimulationVa
 			argumentsRaw: toolFunction.arguments,
 			argumentsJson: parsedArgs,
 			simulationValues: parsedSimulationValues,
-			cameraTarget: parsedCameraTarget,
+			cameraTarget: parsedCameraTarget
 		});
 	}
 
@@ -132,7 +139,14 @@ const summarizeToolCall = (toolCall: ToolCallMessage): string => {
 };
 
 export const useChatStream = (options: UseChatStreamOptions) => {
-	const { chatMessages, simulationValues, setLoading, setToolCalling } = options;
+	const {
+		chatMessages,
+		simulationValues,
+		bohrSimulationValues,
+		visualizationState,
+		setLoading,
+		setToolCalling
+	} = options;
 	let inFlight = false;
 
 	const sendMessage = (message: string): void => {
@@ -144,18 +158,22 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		setLoading(true);
 		setToolCalling?.(false);
 
-		chatMessages.push(createChatMessage({
-			role: 'user',
-			content: message,
-			live: false,
-		}));
+		chatMessages.push(
+			createChatMessage({
+				role: 'user',
+				content: message,
+				live: false
+			})
+		);
 
-		chatMessages.push(createChatMessage({
-			role: 'assistant',
-			content: '',
-			pending: true,
-			live: true,
-		}));
+		chatMessages.push(
+			createChatMessage({
+				role: 'assistant',
+				content: '',
+				pending: true,
+				live: true
+			})
+		);
 
 		const botMessageIdx = chatMessages.length - 1;
 
@@ -175,11 +193,25 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		};
 
 		try {
+			const simulation =
+				visualizationState.mode === 'bohr'
+					? {
+							mode: 'bohr' as const,
+							values: {
+								atomicNumber: bohrSimulationValues.atomicNumber,
+								shellDistribution: getBohrShellDistribution(bohrSimulationValues.atomicNumber)
+							}
+						}
+					: {
+							mode: 'orbital' as const,
+							values: { ...simulationValues }
+						};
+
 			const eventSource = new EventSourcePlus('/api/chat/v1', {
 				method: 'post',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ message, values: simulationValues }),
-				retryStrategy: 'on-error',
+				body: JSON.stringify({ message, simulation }),
+				retryStrategy: 'on-error'
 			});
 
 			let streamFailed = false;
@@ -223,14 +255,15 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 										? `Moved camera to x=${toolCall.cameraTarget.x}, y=${toolCall.cameraTarget.y}, z=${toolCall.cameraTarget.z}`
 										: `Ran tool ${toolCall.toolName}`;
 
-								synthesizedSummaryFromTools = `${synthesizedSummaryFromTools} ${summarizeToolCall(toolCall)}`.trim();
+								synthesizedSummaryFromTools =
+									`${synthesizedSummaryFromTools} ${summarizeToolCall(toolCall)}`.trim();
 
 								chatMessages.push(
 									createChatMessage({
 										role: 'tool',
 										content,
 										live: false,
-										toolCall,
+										toolCall
 									})
 								);
 							}
@@ -244,11 +277,14 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 					}
 				},
 				onResponseError(context) {
-					failOnce(context.response?._data, `Request failed with status ${context.response.status}`);
+					failOnce(
+						context.response?._data,
+						`Request failed with status ${context.response.status}`
+					);
 				},
 				onRequestError(context) {
 					failOnce(context.error, 'Could not connect to the assistant endpoint.');
-				},
+				}
 			});
 
 			controller.onAbort((event) => {

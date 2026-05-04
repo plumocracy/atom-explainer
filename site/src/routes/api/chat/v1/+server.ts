@@ -7,25 +7,25 @@ import {
 	getConversationHistory,
 	getConversationMessages,
 	getOrCreateConversation,
-	touchConversation,
+	touchConversation
 } from '$lib/server/conversation';
 import {
 	CHAT_STREAM_HEADERS,
 	ChatRequestSchema,
 	type StreamedToolCall,
-	encodeSse,
+	encodeSse
 } from '$lib/server/chat/chat-contract';
 import { buildSystemPrompt } from '$lib/server/chat/chat-prompt';
 import {
 	createAdditionalToolCalls,
 	createChatStream,
-	createToolExplanation,
+	createToolExplanation
 } from '$lib/server/chat/chat-client';
 import { ToolCallStreamAccumulator } from '$lib/server/chat/chat-tools';
 import {
 	finalizeAssistantTurn,
 	getToolCallsForMessage,
-	recordUserMessage,
+	recordUserMessage
 } from '$lib/server/chat/chat-store';
 
 const CHAT_MODEL = 'deepseek-3.2';
@@ -54,7 +54,11 @@ const parseSimulationValuesFromToolCall = (toolCall: StreamedToolCall) => {
 	}
 
 	const values = parsedArgs as { n?: unknown; l?: unknown; m?: unknown };
-	if (typeof values.n === 'number' && typeof values.l === 'number' && typeof values.m === 'number') {
+	if (
+		typeof values.n === 'number' &&
+		typeof values.l === 'number' &&
+		typeof values.m === 'number'
+	) {
 		return { n: values.n, l: values.l, m: values.m };
 	}
 
@@ -77,7 +81,11 @@ const parseCameraTargetFromToolCall = (toolCall: StreamedToolCall) => {
 	}
 
 	const values = parsedArgs as { x?: unknown; y?: unknown; z?: unknown };
-	if (typeof values.x === 'number' && typeof values.y === 'number' && typeof values.z === 'number') {
+	if (
+		typeof values.x === 'number' &&
+		typeof values.y === 'number' &&
+		typeof values.z === 'number'
+	) {
 		return { x: values.x, y: values.y, z: values.z };
 	}
 
@@ -86,7 +94,10 @@ const parseCameraTargetFromToolCall = (toolCall: StreamedToolCall) => {
 
 const synthesizeToolOnlyResponse = (toolCalls: StreamedToolCall[]): string => {
 	const summaries = toolCalls.map((toolCall) => {
-		if (toolCall.function.name === 'set_simulation_params' || toolCall.function.name === 'set_simulation_values') {
+		if (
+			toolCall.function.name === 'set_simulation_params' ||
+			toolCall.function.name === 'set_simulation_values'
+		) {
 			const values = parseSimulationValuesFromToolCall(toolCall);
 			if (values) {
 				return `I updated the simulation to n=${values.n}, l=${values.l}, m=${values.m}.`;
@@ -155,8 +166,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 						toolName: toolCall.toolName,
 						argumentsRaw: toolCall.argumentsRaw,
 						argumentsJson: toolCall.argumentsJson,
-						createdAt: toolCall.createdAt,
-					})),
+						createdAt: toolCall.createdAt
+					}))
 				};
 			})
 		);
@@ -164,7 +175,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		return json({
 			success: true,
 			conversationId,
-			messages: messagesWithToolCalls,
+			messages: messagesWithToolCalls
 		});
 	} catch (error) {
 		return toErrorResponse(error, locals.requestId);
@@ -189,7 +200,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 
 		const userId = userResult.data.id;
-		const { message, values } = payload.data;
+		const { message, simulation } = payload.data;
 
 		const conversationResult = await getOrCreateConversation(userId);
 		if (!conversationResult.ok) {
@@ -206,8 +217,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			userId,
 			conversationId: conversation.id,
 			message,
-			values,
-			model: CHAT_MODEL,
+			simulation,
+			model: CHAT_MODEL
 		});
 		if (!userMessageResult.ok) {
 			throw userMessageResult.error;
@@ -220,7 +231,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 		const history = historyResult.data;
 
-		const systemPrompt = buildSystemPrompt(values);
+		const systemPrompt = buildSystemPrompt(simulation);
 
 		const stream = new ReadableStream({
 			async start(controller) {
@@ -228,14 +239,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					const completionStream = await createChatStream({
 						systemPrompt,
 						history,
-						message,
+						message
 					});
 
 					const toolCalls = new ToolCallStreamAccumulator();
 					let assistantResponse = '';
 					let usage = {
 						completionTokens: 0,
-						promptTokens: 0,
+						promptTokens: 0
 					};
 					let isCallingTools = false;
 
@@ -264,7 +275,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						if (chunk.usage) {
 							usage = {
 								completionTokens: chunk.usage.completionTokens ?? 0,
-								promptTokens: chunk.usage.promptTokens ?? 0,
+								promptTokens: chunk.usage.promptTokens ?? 0
 							};
 						}
 					}
@@ -279,7 +290,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 								history,
 								message,
 								toolCalls: finalizedToolCalls,
-								maxRounds: 2,
+								maxRounds: 2
 							});
 
 							if (additionalToolCalls.length) {
@@ -296,12 +307,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 								systemPrompt,
 								history,
 								message,
-								toolCalls: allToolCalls,
+								toolCalls: allToolCalls
 							});
 
 							usage = {
 								promptTokens: usage.promptTokens + followup.usage.promptTokens,
-								completionTokens: usage.completionTokens + followup.usage.completionTokens,
+								completionTokens: usage.completionTokens + followup.usage.completionTokens
 							};
 
 							if (hasUserFacingText(followup.content)) {
@@ -333,7 +344,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						assistantMessage: assistantResponse,
 						model: CHAT_MODEL,
 						usage,
-						toolCalls: allToolCalls,
+						toolCalls: allToolCalls
 					});
 					if (!finalizeResult.ok) {
 						throw finalizeResult.error;
@@ -350,7 +361,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			},
 			cancel() {
 				// no-op
-			},
+			}
 		});
 
 		return new Response(stream, { headers: CHAT_STREAM_HEADERS });

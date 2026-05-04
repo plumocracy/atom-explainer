@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { chatMessages, simulationValues } from '$lib/chat.svelte';
+	import {
+		bohrSimulationValues,
+		chatMessages,
+		simulationValues,
+		visualizationState
+	} from '$lib/chat.svelte';
 	import ResponseCard from './ResponseCard.svelte';
 	import ChatWindowHeader from './ChatWindowHeader.svelte';
 	import ChatSuggestions from './ChatSuggestions.svelte';
@@ -32,6 +37,8 @@
 	const { sendMessage } = useChatStream({
 		chatMessages,
 		simulationValues,
+		bohrSimulationValues,
+		visualizationState,
 		setLoading: (next) => {
 			loading = next;
 		},
@@ -71,7 +78,9 @@
 
 			{#if toolCalling}
 				<div class="flex w-full">
-					<div class="max-w-[88%] rounded-xl border border-[rgba(184,138,71,0.4)] bg-[rgba(184,138,71,0.12)] px-3 py-2 text-xs text-[var(--museum-text)]">
+					<div
+						class="max-w-[88%] rounded-xl border border-[rgba(184,138,71,0.4)] bg-[rgba(184,138,71,0.12)] px-3 py-2 text-xs text-[var(--museum-text)]"
+					>
 						<p class="font-semibold tracking-wide uppercase">Calling tools...</p>
 						<p class="mt-1 text-[var(--museum-subtext)]">Applying simulation updates</p>
 					</div>

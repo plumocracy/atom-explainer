@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { onDestroy, onMount } from 'svelte';
 	import { loadCameraPose, saveCameraPose } from '$lib/camera-storage';
+	import { bohrSimulationValues, getBohrShellDistribution } from '$lib/chat.svelte';
 	import { lookAt, perspective } from '$lib/render_math';
 
 	type PlaneBasis = {
@@ -23,9 +24,8 @@
 	let elapsedMs = 0;
 	let lastTick = 0;
 
-	let atomicNumber = $state(8);
+	let atomicNumber = $derived(bohrSimulationValues.atomicNumber);
 
-	const shellCapacities = [2, 8, 18, 32, 50];
 	const ringSegments = 128;
 
 	let lineProgram: WebGLProgram | null = null;
@@ -67,24 +67,11 @@
 	let lastPointerY = 0;
 
 	const clampAtomicNumber = (next: number) => {
-		atomicNumber = Math.max(1, Math.min(20, next));
+		bohrSimulationValues.atomicNumber = Math.max(1, Math.min(20, next));
 	};
 
 	const shellDistribution = $derived.by(() => {
-		let remaining = atomicNumber;
-		const shells: number[] = [];
-
-		for (const capacity of shellCapacities) {
-			if (remaining <= 0) {
-				break;
-			}
-
-			const shellElectrons = Math.min(remaining, capacity);
-			shells.push(shellElectrons);
-			remaining -= shellElectrons;
-		}
-
-		return shells;
+		return getBohrShellDistribution(atomicNumber);
 	});
 
 	const shellSummary = $derived(shellDistribution.join(', '));
@@ -94,7 +81,7 @@
 		saveCameraPose(BOHR_CAMERA_STORAGE_KEY, {
 			azimuth: cameraAzimuth,
 			elevation: cameraElevation,
-			radius: cameraRadius,
+			radius: cameraRadius
 		});
 	};
 
@@ -111,11 +98,7 @@
 		a: [number, number, number],
 		b: [number, number, number]
 	): [number, number, number] => {
-		return [
-			a[1] * b[2] - a[2] * b[1],
-			a[2] * b[0] - a[0] * b[2],
-			a[0] * b[1] - a[1] * b[0]
-		];
+		return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 	};
 
 	const createPlaneBasis = (shellIndex: number): PlaneBasis => {
@@ -163,11 +146,7 @@
 		return shader;
 	};
 
-	const createProgram = (
-		glContext: WebGL2RenderingContext,
-		vertSrc: string,
-		fragSrc: string
-	) => {
+	const createProgram = (glContext: WebGL2RenderingContext, vertSrc: string, fragSrc: string) => {
 		const vert = createShader(glContext, glContext.VERTEX_SHADER, vertSrc);
 		const frag = createShader(glContext, glContext.FRAGMENT_SHADER, fragSrc);
 
@@ -526,7 +505,7 @@ void main() {
 				minElevation: minCameraElevation,
 				maxElevation: maxCameraElevation,
 				minRadius: minCameraRadius,
-				maxRadius: maxCameraRadius,
+				maxRadius: maxCameraRadius
 			}
 		);
 		cameraAzimuth = restoredCamera.azimuth;
@@ -598,7 +577,7 @@ void main() {
 	});
 </script>
 
-<div class="flex h-full w-full min-h-0 flex-col overflow-hidden text-[var(--color-exhibit-paper)]">
+<div class="flex h-full min-h-0 w-full flex-col overflow-hidden text-[var(--color-exhibit-paper)]">
 	<div class="z-20 bg-[var(--museum-surface)] px-3 py-2 md:px-4 md:py-2.5">
 		<div class="flex flex-wrap items-center gap-2">
 			<button
@@ -610,7 +589,7 @@ void main() {
 				-1
 			</button>
 
-			<span class="text-[11px] font-semibold tracking-wide uppercase text-[rgba(44,61,75,0.95)]"
+			<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
 				>Bohr model 3D · Z={atomicNumber}</span
 			>
 
@@ -638,7 +617,7 @@ void main() {
 			onpointerup={onCanvasPointerUp}
 			onpointercancel={onCanvasPointerUp}
 			onwheel={onCanvasWheel}
-			class="relative z-10 block h-full w-full touch-none cursor-grab active:cursor-grabbing"
+			class="relative z-10 block h-full w-full cursor-grab touch-none active:cursor-grabbing"
 		></canvas>
 	</div>
 </div>

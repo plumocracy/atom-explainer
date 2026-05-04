@@ -3,7 +3,7 @@ import { db } from '$lib/server/db';
 import { conversations, messageToolCalls, messages } from '$lib/server/db/schema';
 import { appError } from '$lib/server/errors';
 import { err, ok, type ServerResult } from '$lib/server/result';
-import type { ChatSimulationValues, StreamedToolCall } from './chat-contract';
+import type { ChatSimulationContext, StreamedToolCall } from './chat-contract';
 
 type MessageInsert = typeof messages.$inferInsert;
 type MessageModel = MessageInsert['model'];
@@ -14,7 +14,7 @@ type RecordUserMessageInput = {
 	userId: string;
 	conversationId: string;
 	message: string;
-	values: ChatSimulationValues;
+	simulation: ChatSimulationContext;
 	model: MessageModel;
 };
 
@@ -31,7 +31,9 @@ type FinalizeAssistantTurnInput = {
 	toolCalls: StreamedToolCall[];
 };
 
-export const recordUserMessage = async (input: RecordUserMessageInput): Promise<ServerResult<string>> => {
+export const recordUserMessage = async (
+	input: RecordUserMessageInput
+): Promise<ServerResult<string>> => {
 	try {
 		const [userMessage] = await db
 			.insert(messages)
@@ -40,8 +42,8 @@ export const recordUserMessage = async (input: RecordUserMessageInput): Promise<
 				conversationId: input.conversationId,
 				role: 'user',
 				content: input.message,
-				simulationValues: JSON.stringify(input.values),
-				model: input.model,
+				simulationValues: JSON.stringify(input.simulation),
+				model: input.model
 			})
 			.returning({ id: messages.id });
 
@@ -59,13 +61,16 @@ export const finalizeAssistantTurn = async (
 	input: FinalizeAssistantTurnInput
 ): Promise<ServerResult<void>> => {
 	try {
-		const [assistantMessage] = await db.insert(messages).values({
-			userId: input.userId,
-			conversationId: input.conversationId,
-			role: 'assistant',
-			content: input.assistantMessage,
-			model: input.model,
-		}).returning({ id: messages.id });
+		const [assistantMessage] = await db
+			.insert(messages)
+			.values({
+				userId: input.userId,
+				conversationId: input.conversationId,
+				role: 'assistant',
+				content: input.assistantMessage,
+				model: input.model
+			})
+			.returning({ id: messages.id });
 
 		if (!assistantMessage) {
 			return err(appError.internal('Could not insert assistant message'));
@@ -78,7 +83,7 @@ export const finalizeAssistantTurn = async (
 			toolType: toolCall.type,
 			toolName: toolCall.function.name,
 			argumentsRaw: toolCall.function.arguments,
-			argumentsJson: toolCall.function.parsedArguments ?? null,
+			argumentsJson: toolCall.function.parsedArguments ?? null
 		}));
 
 		if (toolCallRows.length) {
@@ -94,7 +99,7 @@ export const finalizeAssistantTurn = async (
 			.update(conversations)
 			.set({
 				completionTokens: sql`${conversations.completionTokens} + ${input.usage.completionTokens}`,
-				promptTokens: input.usage.promptTokens,
+				promptTokens: input.usage.promptTokens
 			})
 			.where(eq(conversations.id, input.conversationId));
 

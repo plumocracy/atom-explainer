@@ -7,7 +7,7 @@
 	import OrbitalCanvas from '$lib/components/OrbitalCanvas.svelte';
 	import BohrCanvas from '$lib/components/BohrCanvas.svelte';
 	import ChatWindow from '$lib/components/ChatWindow.svelte';
-	import { chatMessages, createChatMessage } from '$lib/chat.svelte';
+	import { chatMessages, createChatMessage, visualizationState } from '$lib/chat.svelte';
 
 	type VisualizationMode = 'orbital' | 'bohr';
 
@@ -21,6 +21,10 @@
 	let dragging = $state(false);
 	let viewportWidth = $state(0);
 	let visualizationMode = $state<VisualizationMode>('orbital');
+
+	$effect(() => {
+		visualizationState.mode = visualizationMode;
+	});
 
 	const panelMinWidth = 450;
 	const mobileBreakpoint = 1024;
@@ -157,13 +161,23 @@
 		</header>
 
 		<div class="relative flex min-h-0 flex-1 overflow-hidden">
-			<div class="museum-panel relative min-h-0 flex-1 overflow-hidden border-x-0 border-b-0 bg-[#0b141d]">
+			<div
+				class="museum-panel relative min-h-0 flex-1 overflow-hidden border-x-0 border-b-0 bg-[#0b141d]"
+			>
 				{#if visualizationMode === 'orbital'}
-					<div in:fade={{ duration: 240, delay: 90 }} out:fade={{ duration: 150 }} class="absolute inset-0">
+					<div
+						in:fade={{ duration: 240, delay: 90 }}
+						out:fade={{ duration: 150 }}
+						class="absolute inset-0"
+					>
 						<OrbitalCanvas />
 					</div>
 				{:else}
-					<div in:fade={{ duration: 240, delay: 90 }} out:fade={{ duration: 150 }} class="absolute inset-0">
+					<div
+						in:fade={{ duration: 240, delay: 90 }}
+						out:fade={{ duration: 150 }}
+						class="absolute inset-0"
+					>
 						<BohrCanvas />
 					</div>
 				{/if}
