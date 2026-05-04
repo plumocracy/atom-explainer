@@ -101,21 +101,11 @@
 		return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 	};
 
-	const createPlaneBasis = (shellIndex: number): PlaneBasis => {
-		const tilt = 0.22 + shellIndex * 0.27;
-		const spin = shellIndex * 1.11;
-
-		const normal = normalize([
-			Math.sin(tilt) * Math.cos(spin),
-			Math.cos(tilt),
-			Math.sin(tilt) * Math.sin(spin)
-		]);
-
-		const ref: [number, number, number] = Math.abs(normal[1]) > 0.92 ? [1, 0, 0] : [0, 1, 0];
-		const u = normalize(cross(ref, normal));
-		const v = normalize(cross(normal, u));
-
-		return { u, v };
+	const createPlaneBasis = (_shellIndex: number): PlaneBasis => {
+		return {
+			u: [1, 0, 0],
+			v: [0, 0, 1]
+		};
 	};
 
 	const pointOnOrbit = (radius: number, angle: number, plane: PlaneBasis) => {
@@ -280,7 +270,7 @@ void main() {
 					radius,
 					baseAngle: (i / electronCount) * Math.PI * 2,
 					speed: 0.55 / (shellIndex + 1),
-					direction: shellIndex % 2 === 0 ? 1 : -1,
+					direction: 1,
 					plane
 				});
 			}

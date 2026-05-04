@@ -26,6 +26,7 @@
 	let uCloudPulse: WebGLUniformLocation | null = null;
 	let uCloudFalloffRadius: WebGLUniformLocation | null = null;
 	let uCloudMinSpeed: WebGLUniformLocation | null = null;
+	let uHidePositiveQuadrant: WebGLUniformLocation | null = null;
 
 	let lUProj: WebGLUniformLocation | null = null;
 	let lUView: WebGLUniformLocation | null = null;
@@ -79,7 +80,7 @@
 	let cameraAzimuth = 0.85;
 	let cameraElevation = 0.48;
 	let cameraRadius = 44;
-	const minCameraRadius = 18;
+	const minCameraRadius = 0.5;
 	const maxCameraRadius = 88;
 	const minCameraElevation = -1.3;
 	const maxCameraElevation = 1.3;
@@ -116,6 +117,7 @@
 	let mChoices = $derived(
 		Array.from({ length: simulationValues.l * 2 + 1 }, (_, idx) => idx - simulationValues.l)
 	);
+	let hidePositiveQuadrant = $state(false);
 
 	// Clamp l into [0, n-1] when n changes.
 	$effect(() => {
@@ -139,7 +141,7 @@
 		debounceTimer = setTimeout(() => startWorker(_n, _l, _m), 250);
 	});
 
-const vs = `#version 300 es
+	const vs = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 prevPosition;
 layout(location=1) in vec3 nextPosition;
@@ -151,36 +153,24 @@ uniform float uCloudDrift;
 uniform float uCloudPulse;
 uniform float uCloudFalloffRadius;
 uniform float uCloudMinSpeed;
+out vec3 vWorldPosition;
 
 void main() {
   vec3 basePos = mix(prevPosition, nextPosition, uT);
-  float r = length(basePos);
-
-  float radialSpeedScale = max(uCloudMinSpeed, 1.0 - r / uCloudFalloffRadius);
-  float localTime = uCloudTime * radialSpeedScale;
-
-  vec3 radial = normalize(basePos + vec3(1e-5));
-  vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), radial) + vec3(1e-5, 0.0, 0.0));
-  vec3 binormal = normalize(cross(radial, tangent));
-
-  float baseAmplitude = clamp(0.05 + r * 0.01, 0.05, 0.26);
-  float swirlA = sin(localTime * 0.85 + dot(basePos.xz, vec2(0.42, 0.37)) + r * 0.35);
-  float swirlB = cos(localTime * 0.63 + basePos.y * 0.45 + r * 0.21);
-  float pulse = sin(localTime * 0.48 + r * 0.72);
-
-  vec3 drift = tangent * swirlA * baseAmplitude * uCloudDrift;
-  drift += binormal * swirlB * baseAmplitude * 0.7 * uCloudDrift;
-  drift += radial * pulse * baseAmplitude * 0.22 * uCloudPulse;
-
-  vec3 pos = basePos + drift;
-  gl_Position = uProj * uView * vec4(pos, 1.0);
+  vWorldPosition = basePos;
+  gl_Position = uProj * uView * vec4(basePos, 1.0);
   gl_PointSize = 3.0;
 }`;
 
-const fs = `#version 300 es
+	const fs = `#version 300 es
 precision highp float;
+uniform float uHidePositiveQuadrant;
+in vec3 vWorldPosition;
 out vec4 fragColor;
 void main() {
+  if (uHidePositiveQuadrant > 0.5 && vWorldPosition.x > 0.0 && vWorldPosition.y > 0.0) {
+    discard;
+  }
   float d = length(gl_PointCoord - vec2(0.5));
   float alpha = smoothstep(0.5, 0.0, d);
   fragColor = vec4(0.8470, 0.6941, 0.4784, alpha);
@@ -246,9 +236,24 @@ void main() {
 
 	function buildAxesSegments(length = 20): Float32Array {
 		return new Float32Array([
-			-length, 0, 0, length, 0, 0,
-			0, -length, 0, 0, length, 0,
-			0, 0, -length, 0, 0, length,
+			-length,
+			0,
+			0,
+			length,
+			0,
+			0,
+			0,
+			-length,
+			0,
+			0,
+			length,
+			0,
+			0,
+			0,
+			-length,
+			0,
+			0,
+			length
 		]);
 	}
 
@@ -410,11 +415,12 @@ void main() {
 		saveCameraPose(ORBITAL_CAMERA_STORAGE_KEY, {
 			azimuth: cameraAzimuth,
 			elevation: cameraElevation,
-			radius: cameraRadius,
+			radius: cameraRadius
 		});
 	};
 
-	const shortestAngleDelta = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+	const shortestAngleDelta = (from: number, to: number) =>
+		Math.atan2(Math.sin(to - from), Math.cos(to - from));
 
 	const toOrbitalCamera = (x: number, y: number, z: number) => {
 		const radius = clamp(Math.hypot(x, y, z), minCameraRadius, maxCameraRadius);
@@ -451,7 +457,7 @@ void main() {
 			startElevation: cameraElevation,
 			targetElevation: next.elevation,
 			startRadius: cameraRadius,
-			targetRadius: next.radius,
+			targetRadius: next.radius
 		};
 	});
 
@@ -512,7 +518,7 @@ void main() {
 				minElevation: minCameraElevation,
 				maxElevation: maxCameraElevation,
 				minRadius: minCameraRadius,
-				maxRadius: maxCameraRadius,
+				maxRadius: maxCameraRadius
 			}
 		);
 		cameraAzimuth = restoredCamera.azimuth;
@@ -546,6 +552,7 @@ void main() {
 		uCloudPulse = gl.getUniformLocation(pointProgram, 'uCloudPulse');
 		uCloudFalloffRadius = gl.getUniformLocation(pointProgram, 'uCloudFalloffRadius');
 		uCloudMinSpeed = gl.getUniformLocation(pointProgram, 'uCloudMinSpeed');
+		uHidePositiveQuadrant = gl.getUniformLocation(pointProgram, 'uHidePositiveQuadrant');
 
 		gl.useProgram(lineProgram);
 		lUProj = gl.getUniformLocation(lineProgram, 'uProj');
@@ -563,6 +570,7 @@ void main() {
 		gl.uniform1f(uCloudPulse, 1.0);
 		gl.uniform1f(uCloudFalloffRadius, 26.0);
 		gl.uniform1f(uCloudMinSpeed, 0.18);
+		gl.uniform1f(uHidePositiveQuadrant, 0.0);
 
 		gl.useProgram(lineProgram);
 		gl.uniformMatrix4fv(lUProj, false, proj);
@@ -616,6 +624,7 @@ void main() {
 			gl.useProgram(pointProgram);
 			gl.uniformMatrix4fv(uView, false, view);
 			gl.uniform1f(uCloudTime, now * 0.001);
+			gl.uniform1f(uHidePositiveQuadrant, hidePositiveQuadrant ? 1.0 : 0.0);
 
 			gl.useProgram(lineProgram);
 			gl.uniformMatrix4fv(lUView, false, view);
@@ -652,7 +661,7 @@ void main() {
 		animFrameId = requestAnimationFrame(render);
 	});
 
-		onDestroy(() => {
+	onDestroy(() => {
 		if (animFrameId) {
 			cancelAnimationFrame(animFrameId);
 		}
@@ -663,11 +672,13 @@ void main() {
 	});
 </script>
 
-<div class="flex h-full w-full min-h-0 flex-col overflow-hidden text-[var(--color-exhibit-paper)]">
+<div class="flex h-full min-h-0 w-full flex-col overflow-hidden text-[var(--color-exhibit-paper)]">
 	<div class="z-20 bg-[var(--museum-surface)] px-3 py-2 md:px-4 md:py-2.5">
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-[rgba(44,61,75,0.95)]">
 			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="text-[11px] font-semibold tracking-wide uppercase text-[rgba(44,61,75,0.95)]">n</span>
+				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
+					>n</span
+				>
 				{#each nChoices as value}
 					<button
 						type="button"
@@ -683,7 +694,9 @@ void main() {
 			</div>
 
 			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="text-[11px] font-semibold tracking-wide uppercase text-[rgba(44,61,75,0.95)]">l</span>
+				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
+					>l</span
+				>
 				{#each lChoices as value}
 					<button
 						type="button"
@@ -699,7 +712,24 @@ void main() {
 			</div>
 
 			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="text-[11px] font-semibold tracking-wide uppercase text-[rgba(44,61,75,0.95)]">m</span>
+				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
+					>Slice</span
+				>
+				<button
+					type="button"
+					class="rounded border px-2 py-0.5 text-[11px] leading-4 font-medium transition hover:cursor-pointer {hidePositiveQuadrant
+						? 'border-[rgba(44,61,75,0.95)] bg-[rgba(44,61,75,0.95)] text-[rgba(243,229,205,0.98)]'
+						: 'border-[rgba(44,61,75,0.68)] bg-transparent text-[rgba(44,61,75,0.95)] hover:bg-[rgba(44,61,75,0.1)]'}"
+					onclick={() => (hidePositiveQuadrant = !hidePositiveQuadrant)}
+				>
+					Hide +X/+Y quadrant
+				</button>
+			</div>
+
+			<div class="flex flex-wrap items-center gap-1.5">
+				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
+					>m</span
+				>
 				{#each mChoices as value}
 					<button
 						type="button"
@@ -727,7 +757,7 @@ void main() {
 			onpointerup={onCanvasPointerUp}
 			onpointercancel={onCanvasPointerUp}
 			onwheel={onCanvasWheel}
-			class="relative z-10 block h-full w-full touch-none cursor-grab active:cursor-grabbing"
+			class="relative z-10 block h-full w-full cursor-grab touch-none active:cursor-grabbing"
 		></canvas>
 	</div>
 </div>
