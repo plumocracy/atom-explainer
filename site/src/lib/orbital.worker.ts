@@ -1,5 +1,8 @@
 import { STATUS_FINISHED, STATUS_PROCESSING, STATUS_ERROR } from '$lib/worker_states';
-import init, { auto_rejection_scale, sample_batch } from '../../orbital-math/pkg/orbital_math.js';
+import init, {
+	auto_rejection_scale_complex,
+	sample_batch_complex_flow
+} from '../../orbital-math/pkg/orbital_math.js';
 import wasmUrl from '../../orbital-math/pkg/orbital_math_bg.wasm?url';
 declare var self: DedicatedWorkerGlobalScope;
 
@@ -19,7 +22,7 @@ self.onmessage = async (e: MessageEvent) => {
 	await initWasm();
 
 	const { n, l, m, count, batchSize, jobId } = e.data;
-	const tunedScale = auto_rejection_scale(n, l, m, R_MAX, REJECTION_SCALE_CAP);
+	const tunedScale = auto_rejection_scale_complex(n, l, m, R_MAX, REJECTION_SCALE_CAP);
 	const effectiveScale = tunedScale > 0 ? tunedScale : REJECTION_SCALE_FALLBACK;
 	const effectiveBatchSize = Math.max(
 		1,
@@ -35,8 +38,8 @@ self.onmessage = async (e: MessageEvent) => {
 		const remaining = count - totalCollected;
 		const batchCount = Math.min(effectiveBatchSize, remaining);
 
-		const chunk = sample_batch(n, l, m, batchCount, R_MAX, effectiveScale);
-		const produced = chunk.length / 3;
+		const chunk = sample_batch_complex_flow(n, l, m, batchCount, R_MAX, effectiveScale);
+		const produced = chunk.length / 4;
 		if (produced <= 0) {
 			self.postMessage({
 				status: STATUS_ERROR,
@@ -46,16 +49,28 @@ self.onmessage = async (e: MessageEvent) => {
 			return;
 		}
 
+		const points = new Float32Array(produced * 3);
+		const omega = new Float32Array(produced);
+		for (let index = 0; index < produced; index++) {
+			const srcOffset = index * 4;
+			const dstOffset = index * 3;
+			points[dstOffset] = chunk[srcOffset];
+			points[dstOffset + 1] = chunk[srcOffset + 1];
+			points[dstOffset + 2] = chunk[srcOffset + 2];
+			omega[index] = chunk[srcOffset + 3];
+		}
+
 		totalCollected += produced;
 
 		self.postMessage(
 			{
 				status: STATUS_PROCESSING,
 				progress: Math.min(1, totalCollected / count),
-				points: chunk,
+				points,
+				omega,
 				jobId,
 			},
-			{ transfer: [chunk.buffer] }
+			{ transfer: [points.buffer, omega.buffer] }
 		);
 	}
 

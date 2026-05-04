@@ -26,6 +26,10 @@
 	let uCloudPulse: WebGLUniformLocation | null = null;
 	let uCloudFalloffRadius: WebGLUniformLocation | null = null;
 	let uCloudMinSpeed: WebGLUniformLocation | null = null;
+	let uFlowStrength: WebGLUniformLocation | null = null;
+	let uFlowMaxSpeed: WebGLUniformLocation | null = null;
+	let uFlowAnimationSpeed: WebGLUniformLocation | null = null;
+	let uCameraRadius: WebGLUniformLocation | null = null;
 	let uHidePositiveQuadrant: WebGLUniformLocation | null = null;
 
 	let lUProj: WebGLUniformLocation | null = null;
@@ -33,8 +37,9 @@
 	let lUColor: WebGLUniformLocation | null = null;
 
 	let worker: Worker;
-	const TOTAL_POINT_COUNT = 150_000;
+	const TOTAL_POINT_COUNT = 60_000;
 	const TARGET_CHUNK_SLOTS = 24;
+	const BASE_POINT_SIZE = 5.0;
 
 	let worker_state = $state(STATUS_IDLE);
 	let worker_progress = $state(0);
@@ -48,8 +53,10 @@
 		vao: WebGLVertexArrayObject;
 		prevBuf: WebGLBuffer;
 		nextBuf: WebGLBuffer;
+		flowBuf: WebGLBuffer;
 		// The raw nextPosition data, kept so we can use it as prevPosition next time.
 		nextPoints: Float32Array;
+		omega: Float32Array;
 		pointCount: number;
 		t: number;
 	};
@@ -118,6 +125,9 @@
 		Array.from({ length: simulationValues.l * 2 + 1 }, (_, idx) => idx - simulationValues.l)
 	);
 	let hidePositiveQuadrant = $state(false);
+	let flowStrengthMultiplier = $state(1);
+	let maxVelocityClamp = $state(2.25);
+	let flowAnimationSpeed = $state(1);
 
 	// Clamp l into [0, n-1] when n changes.
 	$effect(() => {
@@ -141,10 +151,18 @@
 		debounceTimer = setTimeout(() => startWorker(_n, _l, _m), 250);
 	});
 
+	$effect(() => {
+		flowStrengthMultiplier;
+		maxVelocityClamp;
+		flowAnimationSpeed;
+		m;
+	});
+
 	const vs = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 prevPosition;
 layout(location=1) in vec3 nextPosition;
+layout(location=2) in float flowOmega;
 uniform mat4 uProj;
 uniform mat4 uView;
 uniform float uT;
@@ -153,13 +171,40 @@ uniform float uCloudDrift;
 uniform float uCloudPulse;
 uniform float uCloudFalloffRadius;
 uniform float uCloudMinSpeed;
+uniform float uFlowStrength;
+uniform float uFlowMaxSpeed;
+uniform float uFlowAnimationSpeed;
+uniform float uCameraRadius;
 out vec3 vWorldPosition;
+
+float hash13(vec3 p) {
+  p = fract(p * 0.1031);
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
 
 void main() {
   vec3 basePos = mix(prevPosition, nextPosition, uT);
-  vWorldPosition = basePos;
-  gl_Position = uProj * uView * vec4(basePos, 1.0);
-  gl_PointSize = 3.0;
+  float omega = clamp(flowOmega, -uFlowMaxSpeed, uFlowMaxSpeed);
+  float angle = omega * uCloudTime * uFlowAnimationSpeed * uFlowStrength;
+  float s = sin(angle);
+  float c = cos(angle);
+  vec3 worldPos = basePos;
+  worldPos.xy = mat2(c, -s, s, c) * basePos.xy;
+  float zoomT = clamp((uCameraRadius - 22.0) / 44.0, 0.0, 1.0);
+  float keepProbability = mix(1.0, 0.22, zoomT);
+  if (hash13(basePos) > keepProbability) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+    vWorldPosition = worldPos;
+    return;
+  }
+
+  vWorldPosition = worldPos;
+  vec4 viewPos = uView * vec4(worldPos, 1.0);
+  gl_Position = uProj * viewPos;
+  float distanceScale = clamp(28.0 / max(uCameraRadius, 1.0), 0.35, 1.0);
+  gl_PointSize = ${BASE_POINT_SIZE.toFixed(1)} * distanceScale;
 }`;
 
 	const fs = `#version 300 es
@@ -172,7 +217,10 @@ void main() {
     discard;
   }
   float d = length(gl_PointCoord - vec2(0.5));
-  float alpha = smoothstep(0.5, 0.0, d);
+  if (d > 0.5) {
+    discard;
+  }
+  float alpha = smoothstep(0.5, 0.46, d) * 0.38;
   fragColor = vec4(0.8470, 0.6941, 0.4784, alpha);
 }`;
 
@@ -283,7 +331,7 @@ void main() {
 
 	// Allocates a brand-new slot with both prev and next set to the same points
 	// so it appears immediately with no transition.
-	function createSlot(points: Float32Array): ChunkSlot {
+	function createSlot(points: Float32Array, omega: Float32Array): ChunkSlot {
 		const vao = gl.createVertexArray()!;
 		gl.bindVertexArray(vao);
 
@@ -299,13 +347,21 @@ void main() {
 		gl.enableVertexAttribArray(1);
 		gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
 
+		const flowBuf = gl.createBuffer()!;
+		gl.bindBuffer(gl.ARRAY_BUFFER, flowBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, omega, gl.DYNAMIC_DRAW);
+		gl.enableVertexAttribArray(2);
+		gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0);
+
 		gl.bindVertexArray(null);
 
 		return {
 			vao,
 			prevBuf,
 			nextBuf,
+			flowBuf,
 			nextPoints: points.slice(),
+			omega: omega.slice(),
 			pointCount: points.length / 3,
 			t: 1.0 // start fully arrived
 		};
@@ -313,7 +369,7 @@ void main() {
 
 	// Updates an existing slot with new destination points, snapping prevPosition
 	// to wherever the points currently are and resetting t to kick off a new transition.
-	function updateSlot(slot: ChunkSlot, newPoints: Float32Array) {
+	function updateSlot(slot: ChunkSlot, newPoints: Float32Array, omega: Float32Array) {
 		const currentPos = sampleCurrentPositions(slot);
 
 		// Upload current interpolated positions as the new prevPosition.
@@ -324,7 +380,11 @@ void main() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, slot.nextBuf);
 		gl.bufferData(gl.ARRAY_BUFFER, newPoints, gl.DYNAMIC_DRAW);
 
+		gl.bindBuffer(gl.ARRAY_BUFFER, slot.flowBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, omega, gl.DYNAMIC_DRAW);
+
 		slot.nextPoints = newPoints;
+		slot.omega = omega;
 		slot.pointCount = newPoints.length / 3;
 		slot.t = 0.0;
 	}
@@ -342,11 +402,12 @@ void main() {
 					status: string;
 					progress?: number;
 					points?: Float32Array;
+					omega?: Float32Array;
 					message?: string;
 					jobId: number;
 				}>
 			) => {
-				const { status, progress, points, message, jobId } = e.data;
+				const { status, progress, points, omega, message, jobId } = e.data;
 				if (jobId !== currentJobId) {
 					return;
 				}
@@ -355,15 +416,15 @@ void main() {
 					worker_state = STATUS_PROCESSING;
 					worker_progress = progress ?? 0;
 
-					if (points && points.length > 0) {
+					if (points && omega && points.length > 0) {
 						const slotIndex = incomingSlotIndex % Math.max(slots.length, 1);
 
 						if (slots.length < maxSlotsForJob) {
 							// Pool not yet full — allocate a new slot.
-							slots.push(createSlot(points));
+							slots.push(createSlot(points, omega));
 						} else {
 							// Pool is full — update the slot at this index in-place.
-							updateSlot(slots[slotIndex], points);
+							updateSlot(slots[slotIndex], points, omega);
 							//console.log(`Slot ${slotIndex}: ${slots[slotIndex].pointCount}`);
 						}
 
@@ -552,6 +613,10 @@ void main() {
 		uCloudPulse = gl.getUniformLocation(pointProgram, 'uCloudPulse');
 		uCloudFalloffRadius = gl.getUniformLocation(pointProgram, 'uCloudFalloffRadius');
 		uCloudMinSpeed = gl.getUniformLocation(pointProgram, 'uCloudMinSpeed');
+		uFlowStrength = gl.getUniformLocation(pointProgram, 'uFlowStrength');
+		uFlowMaxSpeed = gl.getUniformLocation(pointProgram, 'uFlowMaxSpeed');
+		uFlowAnimationSpeed = gl.getUniformLocation(pointProgram, 'uFlowAnimationSpeed');
+		uCameraRadius = gl.getUniformLocation(pointProgram, 'uCameraRadius');
 		uHidePositiveQuadrant = gl.getUniformLocation(pointProgram, 'uHidePositiveQuadrant');
 
 		gl.useProgram(lineProgram);
@@ -570,6 +635,10 @@ void main() {
 		gl.uniform1f(uCloudPulse, 1.0);
 		gl.uniform1f(uCloudFalloffRadius, 26.0);
 		gl.uniform1f(uCloudMinSpeed, 0.18);
+		gl.uniform1f(uFlowStrength, flowStrengthMultiplier);
+		gl.uniform1f(uFlowMaxSpeed, maxVelocityClamp);
+		gl.uniform1f(uFlowAnimationSpeed, flowAnimationSpeed);
+		gl.uniform1f(uCameraRadius, cameraRadius);
 		gl.uniform1f(uHidePositiveQuadrant, 0.0);
 
 		gl.useProgram(lineProgram);
@@ -624,6 +693,10 @@ void main() {
 			gl.useProgram(pointProgram);
 			gl.uniformMatrix4fv(uView, false, view);
 			gl.uniform1f(uCloudTime, now * 0.001);
+			gl.uniform1f(uFlowStrength, flowStrengthMultiplier);
+			gl.uniform1f(uFlowMaxSpeed, maxVelocityClamp);
+			gl.uniform1f(uFlowAnimationSpeed, flowAnimationSpeed);
+			gl.uniform1f(uCameraRadius, cameraRadius);
 			gl.uniform1f(uHidePositiveQuadrant, hidePositiveQuadrant ? 1.0 : 0.0);
 
 			gl.useProgram(lineProgram);
@@ -743,6 +816,28 @@ void main() {
 					</button>
 				{/each}
 			</div>
+
+		</div>
+
+		<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-[rgba(44,61,75,0.88)]">
+			<label class="flex items-center gap-2">
+				<span class="font-semibold tracking-wide uppercase">Flow strength {flowStrengthMultiplier.toFixed(1)}</span>
+				<input type="range" min="0" max="4" step="0.1" bind:value={flowStrengthMultiplier} />
+			</label>
+
+			<label class="flex items-center gap-2">
+				<span class="font-semibold tracking-wide uppercase">Max speed {maxVelocityClamp.toFixed(2)}</span>
+				<input type="range" min="0.1" max="8" step="0.05" bind:value={maxVelocityClamp} />
+			</label>
+
+			<label class="flex items-center gap-2">
+				<span class="font-semibold tracking-wide uppercase">Animation {flowAnimationSpeed.toFixed(1)}</span>
+				<input type="range" min="0" max="4" step="0.1" bind:value={flowAnimationSpeed} />
+			</label>
+
+			<span class="rounded border border-[rgba(44,61,75,0.15)] px-2 py-1 font-medium">
+				m = {simulationValues.m} {simulationValues.m === 0 ? 'complex state has no current' : 'actual cloud particles circulate'}
+			</span>
 		</div>
 	</div>
 
