@@ -30,11 +30,102 @@ export const CHAT_TOOLS: ChatFunctionTool[] = [
 				properties: {
 					n: { type: 'integer' },
 					l: { type: 'integer' },
-					m: { type: 'integer' },
+					m: { type: 'integer' }
 				},
-				required: ['n', 'l', 'm'],
-			},
-		},
+				required: ['n', 'l', 'm']
+			}
+		}
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'create_button',
+			description:
+				'Insert one or more clickable buttons beneath the assistant message to apply predefined simulation parameter actions',
+			parameters: {
+				type: 'object',
+				properties: {
+					buttons: {
+						type: 'array',
+						items: {
+							type: 'object',
+							properties: {
+								label: { type: 'string', description: 'Short button text shown to the user' },
+								simulationValues: {
+									type: 'object',
+									properties: {
+									n: { type: 'integer' },
+									l: { type: 'integer' },
+									m: { type: 'integer' }
+								},
+								required: ['n', 'l', 'm']
+								}
+							},
+							required: ['label']
+						}
+					}
+				},
+				required: ['buttons']
+			}
+		}
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'toggle_positive_xy_cross_section',
+			description:
+				'Turn the +X/+Y orbital cross section on or off by hiding or showing that positive X and positive Y region',
+			parameters: {
+				type: 'object',
+				properties: {
+					hidden: {
+						type: 'boolean',
+						description:
+							'True hides the +X/+Y cross section, false shows the full cloud again'
+					}
+				},
+				required: ['hidden']
+			}
+		}
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'create_toggle_button',
+			description:
+				'Insert a clickable toggle button beneath the assistant message that stays synced with the main UI. It can either toggle the +X/+Y cross section or swap between the orbital and Bohr visualizations.',
+			parameters: {
+				type: 'object',
+				properties: {
+					toggleType: {
+						type: 'string',
+						enum: ['positive_xy_cross_section', 'visualization_mode'],
+						description: 'Choose which synchronized toggle button to create'
+					},
+					labelWhenVisible: {
+						type: 'string',
+						description:
+							'For positive_xy_cross_section only: label shown when the cross section is currently visible and clicking will hide it'
+					},
+					labelWhenHidden: {
+						type: 'string',
+						description:
+							'For positive_xy_cross_section only: label shown when the cross section is currently hidden and clicking will show it'
+					},
+					labelWhenOrbital: {
+						type: 'string',
+						description:
+							'For visualization_mode only: label shown when the orbital view is active and clicking will switch to Bohr'
+					},
+					labelWhenBohr: {
+						type: 'string',
+						description:
+							'For visualization_mode only: label shown when the Bohr view is active and clicking will switch to orbital'
+					}
+				},
+				required: ['toggleType']
+			}
+		}
 	},
 	{
 		type: 'function',
@@ -50,16 +141,16 @@ export const CHAT_TOOLS: ChatFunctionTool[] = [
 					z: { type: 'number', description: 'Camera z position in scene coordinates' },
 					durationMs: {
 						type: 'number',
-						description: 'Optional transition duration in milliseconds',
-					},
+						description: 'Optional transition duration in milliseconds'
+					}
 				},
-				required: ['x', 'y', 'z'],
-			},
-		},
-	},
+				required: ['x', 'y', 'z']
+			}
+		}
+	}
 ];
 
-const mergeFragment = (current: string, incoming: string): string => {
+export const mergeFragment = (current: string, incoming: string): string => {
 	if (!incoming) {
 		return current;
 	}
@@ -79,7 +170,7 @@ const mergeFragment = (current: string, incoming: string): string => {
 	return `${current}${incoming}`;
 };
 
-const parseToolArguments = (argumentsText: string): unknown | undefined => {
+export const parseToolArguments = (argumentsText: string): unknown | undefined => {
 	const normalized = argumentsText.trim();
 	if (!normalized) {
 		return undefined;
@@ -105,7 +196,7 @@ export class ToolCallStreamAccumulator {
 				index: delta.index,
 				type: 'function' as const,
 				functionName: '',
-				functionArguments: '',
+				functionArguments: ''
 			};
 
 			if (delta.id) {
@@ -117,7 +208,10 @@ export class ToolCallStreamAccumulator {
 			}
 
 			if (delta.function?.arguments) {
-				current.functionArguments = mergeFragment(current.functionArguments, delta.function.arguments);
+				current.functionArguments = mergeFragment(
+					current.functionArguments,
+					delta.function.arguments
+				);
 			}
 
 			this.calls.set(delta.index, current);
@@ -135,8 +229,8 @@ export class ToolCallStreamAccumulator {
 				function: {
 					name: call.functionName,
 					arguments: call.functionArguments,
-					parsedArguments: parseToolArguments(call.functionArguments),
-				},
+					parsedArguments: parseToolArguments(call.functionArguments)
+				}
 			}));
 	}
 }

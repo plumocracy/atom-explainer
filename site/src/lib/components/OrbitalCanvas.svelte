@@ -3,7 +3,12 @@
 	import { browser } from '$app/environment';
 	import { loadCameraPose, saveCameraPose } from '$lib/camera-storage';
 	import { perspective, lookAt } from '$lib/render_math';
-	import { orbitalCameraState, simulationValues } from '$lib/chat.svelte';
+	import {
+		orbitalCameraState,
+		orbitalViewState,
+		setPositiveXYCrossSectionHidden,
+		simulationValues
+	} from '$lib/chat.svelte';
 
 	import {
 		STATUS_FINISHED,
@@ -15,7 +20,7 @@
 	let canvas: HTMLCanvasElement;
 	let gl: WebGL2RenderingContext;
 	let animFrameId: number;
-	let pointProgram: WebGLProgram | null = null;
+	let sphereProgram: WebGLProgram | null = null;
 	let lineProgram: WebGLProgram | null = null;
 
 	let uProj: WebGLUniformLocation | null = null;
@@ -30,16 +35,23 @@
 	let uFlowMaxSpeed: WebGLUniformLocation | null = null;
 	let uFlowAnimationSpeed: WebGLUniformLocation | null = null;
 	let uCameraRadius: WebGLUniformLocation | null = null;
+	let uSphereRadius: WebGLUniformLocation | null = null;
 	let uHidePositiveQuadrant: WebGLUniformLocation | null = null;
+	let uZRotation: WebGLUniformLocation | null = null;
 
 	let lUProj: WebGLUniformLocation | null = null;
 	let lUView: WebGLUniformLocation | null = null;
 	let lUColor: WebGLUniformLocation | null = null;
 
 	let worker: Worker;
-	const TOTAL_POINT_COUNT = 60_000;
+	const TOTAL_POINT_COUNT = 20_000;
 	const TARGET_CHUNK_SLOTS = 24;
-	const BASE_POINT_SIZE = 5.0;
+	const BASE_SPHERE_RADIUS = 0.117;
+	const SPHERE_FADE_BAND = 0.08;
+	const RADIAL_COMPRESSION = 0.035;
+	const FLOW_STRENGTH = 1.6;
+	const FLOW_MAX_SPEED = 2.25;
+	const FLOW_ANIMATION_SPEED = 1.8;
 
 	let worker_state = $state(STATUS_IDLE);
 	let worker_progress = $state(0);
@@ -54,14 +66,15 @@
 		prevBuf: WebGLBuffer;
 		nextBuf: WebGLBuffer;
 		flowBuf: WebGLBuffer;
+		prevPoints: Float32Array;
 		// The raw nextPosition data, kept so we can use it as prevPosition next time.
 		nextPoints: Float32Array;
-		omega: Float32Array;
+		flow: Float32Array;
 		pointCount: number;
 		t: number;
 	};
 
-	type LineMesh = {
+	type Mesh = {
 		vao: WebGLVertexArrayObject;
 		vbo: WebGLBuffer;
 		vertexCount: number;
@@ -69,8 +82,9 @@
 
 	// Fixed-size pool of slots. Initialised on first job, then reused forever.
 	let slots: ChunkSlot[] = [];
-	let axisMesh: LineMesh | null = null;
-	let gridMesh: LineMesh | null = null;
+	let sphereMesh: Mesh | null = null;
+	let axisMesh: Mesh | null = null;
+	let gridMesh: Mesh | null = null;
 
 	// Index of the next slot to update when a chunk arrives.
 	let incomingSlotIndex = 0;
@@ -78,8 +92,11 @@
 	// TODO: Make transiton duration proportional to time it took to get first buffer back
 	// therefore making all transitions take the same length of time, hiding the loading
 	// all together
-	let transitionDuration = 0.8;
+	let transitionDuration = 0.12;
 	let lastFrameTime = 0;
+	let fps = $state(0);
+	let fpsFrameCount = 0;
+	let fpsElapsed = 0;
 
 	let currentJobId = 0;
 	let maxSlotsForJob = TARGET_CHUNK_SLOTS;
@@ -124,10 +141,8 @@
 	let mChoices = $derived(
 		Array.from({ length: simulationValues.l * 2 + 1 }, (_, idx) => idx - simulationValues.l)
 	);
-	let hidePositiveQuadrant = $state(false);
-	let flowStrengthMultiplier = $state(1);
-	let maxVelocityClamp = $state(2.25);
-	let flowAnimationSpeed = $state(1);
+	let hidePositiveQuadrant = $derived(orbitalViewState.hidePositiveXYCrossSection);
+	let zRotationDegrees = $state(0);
 
 	// Clamp l into [0, n-1] when n changes.
 	$effect(() => {
@@ -151,77 +166,115 @@
 		debounceTimer = setTimeout(() => startWorker(_n, _l, _m), 250);
 	});
 
-	$effect(() => {
-		flowStrengthMultiplier;
-		maxVelocityClamp;
-		flowAnimationSpeed;
-		m;
-	});
-
 	const vs = `#version 300 es
 precision highp float;
-layout(location=0) in vec3 prevPosition;
-layout(location=1) in vec3 nextPosition;
-layout(location=2) in float flowOmega;
+layout(location=0) in vec3 position;
+layout(location=1) in vec3 normal;
+layout(location=2) in vec3 prevPosition;
+layout(location=3) in vec3 nextPosition;
+	layout(location=4) in vec3 flowVelocity;
 uniform mat4 uProj;
 uniform mat4 uView;
 uniform float uT;
-uniform float uCloudTime;
-uniform float uCloudDrift;
-uniform float uCloudPulse;
-uniform float uCloudFalloffRadius;
-uniform float uCloudMinSpeed;
-uniform float uFlowStrength;
-uniform float uFlowMaxSpeed;
-uniform float uFlowAnimationSpeed;
-uniform float uCameraRadius;
+uniform float uSphereRadius;
+uniform float uHidePositiveQuadrant;
+uniform float uZRotation;
 out vec3 vWorldPosition;
+out vec3 vNormal;
+out float vAlpha;
 
-float hash13(vec3 p) {
-  p = fract(p * 0.1031);
-  p += dot(p, p.yzx + 33.33);
-  return fract((p.x + p.y) * p.z);
+vec3 rotateScene(vec3 p) {
+  return vec3(p.z, p.y, -p.x);
+}
+
+vec3 rotateZ(vec3 p, float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
 }
 
 void main() {
-  vec3 basePos = mix(prevPosition, nextPosition, uT);
-  float omega = clamp(flowOmega, -uFlowMaxSpeed, uFlowMaxSpeed);
-  float angle = omega * uCloudTime * uFlowAnimationSpeed * uFlowStrength;
-  float s = sin(angle);
-  float c = cos(angle);
-  vec3 worldPos = basePos;
-  worldPos.xy = mat2(c, -s, s, c) * basePos.xy;
-  float zoomT = clamp((uCameraRadius - 22.0) / 44.0, 0.0, 1.0);
-  float keepProbability = mix(1.0, 0.22, zoomT);
-  if (hash13(basePos) > keepProbability) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    gl_PointSize = 0.0;
-    vWorldPosition = worldPos;
-    return;
+  vec3 baseCenter = mix(prevPosition, nextPosition, uT);
+  vec3 worldCenter = rotateScene(baseCenter);
+  float centerRadius = length(worldCenter);
+  if (centerRadius > 0.0001) {
+    // Compress the sampled radius so antinodes sit closer together.
+    worldCenter *= 1.0 / (1.0 + ${RADIAL_COMPRESSION.toFixed(3)} * centerRadius);
   }
+  worldCenter = rotateZ(worldCenter, uZRotation);
+  float safeMarginX = -uSphereRadius - worldCenter.x;
+  float safeMarginY = -uSphereRadius - worldCenter.y;
+  float safeMargin = max(safeMarginX, safeMarginY);
+  float hiddenAlpha = smoothstep(-${SPHERE_FADE_BAND.toFixed(2)}, ${SPHERE_FADE_BAND.toFixed(2)}, safeMargin);
+  vAlpha = mix(1.0, hiddenAlpha, uHidePositiveQuadrant);
+
+  vec3 worldPos = worldCenter + rotateZ(rotateScene(position), uZRotation) * uSphereRadius;
 
   vWorldPosition = worldPos;
-  vec4 viewPos = uView * vec4(worldPos, 1.0);
-  gl_Position = uProj * viewPos;
-  float distanceScale = clamp(28.0 / max(uCameraRadius, 1.0), 0.35, 1.0);
-  gl_PointSize = ${BASE_POINT_SIZE.toFixed(1)} * distanceScale;
+  vNormal = rotateZ(rotateScene(normal), uZRotation);
+  gl_Position = uProj * uView * vec4(worldPos, 1.0);
 }`;
 
 	const fs = `#version 300 es
 precision highp float;
 uniform float uHidePositiveQuadrant;
 in vec3 vWorldPosition;
+in vec3 vNormal;
+in float vAlpha;
 out vec4 fragColor;
+
+float bayer4(vec2 p) {
+  int x = int(mod(p.x, 4.0));
+  int y = int(mod(p.y, 4.0));
+
+  if (y == 0) {
+    if (x == 0) return 0.0 / 16.0;
+    if (x == 1) return 8.0 / 16.0;
+    if (x == 2) return 2.0 / 16.0;
+    return 10.0 / 16.0;
+  }
+  if (y == 1) {
+    if (x == 0) return 12.0 / 16.0;
+    if (x == 1) return 4.0 / 16.0;
+    if (x == 2) return 14.0 / 16.0;
+    return 6.0 / 16.0;
+  }
+  if (y == 2) {
+    if (x == 0) return 3.0 / 16.0;
+    if (x == 1) return 11.0 / 16.0;
+    if (x == 2) return 1.0 / 16.0;
+    return 9.0 / 16.0;
+  }
+
+  if (x == 0) return 15.0 / 16.0;
+  if (x == 1) return 7.0 / 16.0;
+  if (x == 2) return 13.0 / 16.0;
+  return 5.0 / 16.0;
+}
+
 void main() {
-  if (uHidePositiveQuadrant > 0.5 && vWorldPosition.x > 0.0 && vWorldPosition.y > 0.0) {
+  if (vAlpha <= 0.001) {
     discard;
   }
-  float d = length(gl_PointCoord - vec2(0.5));
-  if (d > 0.5) {
-    discard;
+  if (vAlpha < 0.999) {
+    float threshold = bayer4(gl_FragCoord.xy);
+    if (vAlpha < threshold) {
+      discard;
+    }
   }
-  float alpha = smoothstep(0.5, 0.46, d) * 0.38;
-  fragColor = vec4(0.8470, 0.6941, 0.4784, alpha);
+  vec3 normal = normalize(vNormal);
+  vec3 lightDirA = normalize(vec3(0.28, 0.94, 0.2));
+  vec3 lightDirB = normalize(vec3(-0.76, 0.18, 0.62));
+  vec3 viewDir = normalize(vec3(0.0, 0.0, 1.0));
+  float diffuseA = max(dot(normal, lightDirA), 0.0);
+  float diffuseB = max(dot(normal, lightDirB), 0.0);
+  float rim = pow(1.0 - max(dot(normal, viewDir), 0.0), 1.8);
+  float edgeShade = 1.0 - 0.18 * rim;
+  float lighting = (0.68 + 0.26 * diffuseA + 0.16 * diffuseB + 0.12 * rim) * edgeShade;
+  vec3 baseColor = vec3(0.965, 0.455, 0.12);
+  float radialFade = clamp(length(vWorldPosition) / 15.0, 0.0, 1.0);
+  vec3 shadedColor = mix(baseColor, vec3(1.0), radialFade * 0.44);
+  fragColor = vec4(shadedColor * lighting, 1.0);
 }`;
 
 	const lineVs = `#version 300 es
@@ -229,8 +282,13 @@ precision highp float;
 layout(location=0) in vec3 position;
 uniform mat4 uProj;
 uniform mat4 uView;
+
+vec3 rotateScene(vec3 p) {
+  return vec3(p.z, p.y, -p.x);
+}
+
 void main() {
-  gl_Position = uProj * uView * vec4(position, 1.0);
+  gl_Position = uProj * uView * vec4(rotateScene(position), 1.0);
 }`;
 
 	const lineFs = `#version 300 es
@@ -268,7 +326,7 @@ void main() {
 		return prog;
 	}
 
-	function createLineMesh(vertices: Float32Array): LineMesh {
+	function createLineMesh(vertices: Float32Array): Mesh {
 		const vao = gl.createVertexArray()!;
 		const vbo = gl.createBuffer()!;
 
@@ -280,6 +338,53 @@ void main() {
 		gl.bindVertexArray(null);
 
 		return { vao, vbo, vertexCount: vertices.length / 3 };
+	}
+
+	function buildSphereTriangles(latSegments = 6, lonSegments = 8): Float32Array {
+		const vertices: number[] = [];
+
+		const pushVertex = (theta: number, phi: number) => {
+			const sinTheta = Math.sin(theta);
+			const x = sinTheta * Math.cos(phi);
+			const y = Math.cos(theta);
+			const z = sinTheta * Math.sin(phi);
+			vertices.push(x, y, z, x, y, z);
+		};
+
+		for (let lat = 0; lat < latSegments; lat++) {
+			const theta0 = (lat / latSegments) * Math.PI;
+			const theta1 = ((lat + 1) / latSegments) * Math.PI;
+			for (let lon = 0; lon < lonSegments; lon++) {
+				const phi0 = (lon / lonSegments) * Math.PI * 2;
+				const phi1 = ((lon + 1) / lonSegments) * Math.PI * 2;
+
+				pushVertex(theta0, phi0);
+				pushVertex(theta1, phi0);
+				pushVertex(theta1, phi1);
+
+				pushVertex(theta0, phi0);
+				pushVertex(theta1, phi1);
+				pushVertex(theta0, phi1);
+			}
+		}
+
+		return new Float32Array(vertices);
+	}
+
+	function createSphereMesh(vertices: Float32Array): Mesh {
+		const vao = gl.createVertexArray()!;
+		const vbo = gl.createBuffer()!;
+
+		gl.bindVertexArray(vao);
+		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+		gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+		gl.enableVertexAttribArray(0);
+		gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+		gl.enableVertexAttribArray(1);
+		gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+		gl.bindVertexArray(null);
+
+		return { vao, vbo, vertexCount: vertices.length / 6 };
 	}
 
 	function buildAxesSegments(length = 20): Float32Array {
@@ -326,32 +431,50 @@ void main() {
 	}
 
 	function sampleCurrentPositions(slot: ChunkSlot): Float32Array {
-		return slot.nextPoints.slice();
+		const positions = new Float32Array(slot.nextPoints.length);
+		for (let idx = 0; idx < positions.length; idx++) {
+			positions[idx] =
+				slot.prevPoints[idx] + (slot.nextPoints[idx] - slot.prevPoints[idx]) * slot.t;
+		}
+		return positions;
 	}
 
 	// Allocates a brand-new slot with both prev and next set to the same points
 	// so it appears immediately with no transition.
-	function createSlot(points: Float32Array, omega: Float32Array): ChunkSlot {
+	function createSlot(points: Float32Array, flow: Float32Array): ChunkSlot {
+		if (!sphereMesh) {
+			throw new Error('Sphere mesh must be created before chunk slots');
+		}
+
 		const vao = gl.createVertexArray()!;
 		gl.bindVertexArray(vao);
+
+		gl.bindBuffer(gl.ARRAY_BUFFER, sphereMesh.vbo);
+		gl.enableVertexAttribArray(0);
+		gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+		gl.enableVertexAttribArray(1);
+		gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
 
 		const prevBuf = gl.createBuffer()!;
 		gl.bindBuffer(gl.ARRAY_BUFFER, prevBuf);
 		gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
-		gl.enableVertexAttribArray(0);
-		gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+		gl.enableVertexAttribArray(2);
+		gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
+		gl.vertexAttribDivisor(2, 1);
 
 		const nextBuf = gl.createBuffer()!;
 		gl.bindBuffer(gl.ARRAY_BUFFER, nextBuf);
 		gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
-		gl.enableVertexAttribArray(1);
-		gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+		gl.enableVertexAttribArray(3);
+		gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 0, 0);
+		gl.vertexAttribDivisor(3, 1);
 
 		const flowBuf = gl.createBuffer()!;
 		gl.bindBuffer(gl.ARRAY_BUFFER, flowBuf);
-		gl.bufferData(gl.ARRAY_BUFFER, omega, gl.DYNAMIC_DRAW);
-		gl.enableVertexAttribArray(2);
-		gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0);
+		gl.bufferData(gl.ARRAY_BUFFER, flow, gl.DYNAMIC_DRAW);
+		gl.enableVertexAttribArray(4);
+		gl.vertexAttribPointer(4, 3, gl.FLOAT, false, 0, 0);
+		gl.vertexAttribDivisor(4, 1);
 
 		gl.bindVertexArray(null);
 
@@ -360,8 +483,9 @@ void main() {
 			prevBuf,
 			nextBuf,
 			flowBuf,
+			prevPoints: points.slice(),
 			nextPoints: points.slice(),
-			omega: omega.slice(),
+			flow: flow.slice(),
 			pointCount: points.length / 3,
 			t: 1.0 // start fully arrived
 		};
@@ -369,7 +493,7 @@ void main() {
 
 	// Updates an existing slot with new destination points, snapping prevPosition
 	// to wherever the points currently are and resetting t to kick off a new transition.
-	function updateSlot(slot: ChunkSlot, newPoints: Float32Array, omega: Float32Array) {
+	function updateSlot(slot: ChunkSlot, newPoints: Float32Array, flow: Float32Array) {
 		const currentPos = sampleCurrentPositions(slot);
 
 		// Upload current interpolated positions as the new prevPosition.
@@ -381,10 +505,11 @@ void main() {
 		gl.bufferData(gl.ARRAY_BUFFER, newPoints, gl.DYNAMIC_DRAW);
 
 		gl.bindBuffer(gl.ARRAY_BUFFER, slot.flowBuf);
-		gl.bufferData(gl.ARRAY_BUFFER, omega, gl.DYNAMIC_DRAW);
+		gl.bufferData(gl.ARRAY_BUFFER, flow, gl.DYNAMIC_DRAW);
 
-		slot.nextPoints = newPoints;
-		slot.omega = omega;
+		slot.prevPoints = currentPos;
+		slot.nextPoints = newPoints.slice();
+		slot.flow = flow.slice();
 		slot.pointCount = newPoints.length / 3;
 		slot.t = 0.0;
 	}
@@ -402,12 +527,12 @@ void main() {
 					status: string;
 					progress?: number;
 					points?: Float32Array;
-					omega?: Float32Array;
+					flow?: Float32Array;
 					message?: string;
 					jobId: number;
 				}>
 			) => {
-				const { status, progress, points, omega, message, jobId } = e.data;
+				const { status, progress, points, flow, message, jobId } = e.data;
 				if (jobId !== currentJobId) {
 					return;
 				}
@@ -416,15 +541,15 @@ void main() {
 					worker_state = STATUS_PROCESSING;
 					worker_progress = progress ?? 0;
 
-					if (points && omega && points.length > 0) {
+					if (points && flow && points.length > 0) {
 						const slotIndex = incomingSlotIndex % Math.max(slots.length, 1);
 
 						if (slots.length < maxSlotsForJob) {
 							// Pool not yet full — allocate a new slot.
-							slots.push(createSlot(points, omega));
+							slots.push(createSlot(points, flow));
 						} else {
 							// Pool is full — update the slot at this index in-place.
-							updateSlot(slots[slotIndex], points, omega);
+							updateSlot(slots[slotIndex], points, flow);
 							//console.log(`Slot ${slotIndex}: ${slots[slotIndex].pointCount}`);
 						}
 
@@ -586,8 +711,6 @@ void main() {
 		cameraElevation = restoredCamera.elevation;
 		cameraRadius = restoredCamera.radius;
 
-		initWebWorker();
-
 		gl = canvas.getContext('webgl2')!;
 
 		canvas.width = canvas.clientWidth || window.innerWidth;
@@ -600,62 +723,76 @@ void main() {
 		gl.enable(gl.BLEND);
 		gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-		pointProgram = createProgram(gl, vs, fs);
+		sphereProgram = createProgram(gl, vs, fs);
 		lineProgram = createProgram(gl, lineVs, lineFs);
 
-		gl.useProgram(pointProgram);
+		gl.useProgram(sphereProgram);
 
-		uProj = gl.getUniformLocation(pointProgram, 'uProj');
-		uView = gl.getUniformLocation(pointProgram, 'uView');
-		uT = gl.getUniformLocation(pointProgram, 'uT');
-		uCloudTime = gl.getUniformLocation(pointProgram, 'uCloudTime');
-		uCloudDrift = gl.getUniformLocation(pointProgram, 'uCloudDrift');
-		uCloudPulse = gl.getUniformLocation(pointProgram, 'uCloudPulse');
-		uCloudFalloffRadius = gl.getUniformLocation(pointProgram, 'uCloudFalloffRadius');
-		uCloudMinSpeed = gl.getUniformLocation(pointProgram, 'uCloudMinSpeed');
-		uFlowStrength = gl.getUniformLocation(pointProgram, 'uFlowStrength');
-		uFlowMaxSpeed = gl.getUniformLocation(pointProgram, 'uFlowMaxSpeed');
-		uFlowAnimationSpeed = gl.getUniformLocation(pointProgram, 'uFlowAnimationSpeed');
-		uCameraRadius = gl.getUniformLocation(pointProgram, 'uCameraRadius');
-		uHidePositiveQuadrant = gl.getUniformLocation(pointProgram, 'uHidePositiveQuadrant');
+		uProj = gl.getUniformLocation(sphereProgram, 'uProj');
+		uView = gl.getUniformLocation(sphereProgram, 'uView');
+		uT = gl.getUniformLocation(sphereProgram, 'uT');
+		uCloudTime = gl.getUniformLocation(sphereProgram, 'uCloudTime');
+		uCloudDrift = gl.getUniformLocation(sphereProgram, 'uCloudDrift');
+		uCloudPulse = gl.getUniformLocation(sphereProgram, 'uCloudPulse');
+		uCloudFalloffRadius = gl.getUniformLocation(sphereProgram, 'uCloudFalloffRadius');
+		uCloudMinSpeed = gl.getUniformLocation(sphereProgram, 'uCloudMinSpeed');
+		uFlowStrength = gl.getUniformLocation(sphereProgram, 'uFlowStrength');
+		uFlowMaxSpeed = gl.getUniformLocation(sphereProgram, 'uFlowMaxSpeed');
+		uFlowAnimationSpeed = gl.getUniformLocation(sphereProgram, 'uFlowAnimationSpeed');
+		uCameraRadius = gl.getUniformLocation(sphereProgram, 'uCameraRadius');
+		uSphereRadius = gl.getUniformLocation(sphereProgram, 'uSphereRadius');
+		uHidePositiveQuadrant = gl.getUniformLocation(sphereProgram, 'uHidePositiveQuadrant');
+		uZRotation = gl.getUniformLocation(sphereProgram, 'uZRotation');
 
 		gl.useProgram(lineProgram);
 		lUProj = gl.getUniformLocation(lineProgram, 'uProj');
 		lUView = gl.getUniformLocation(lineProgram, 'uView');
 		lUColor = gl.getUniformLocation(lineProgram, 'uColor');
 
+		sphereMesh = createSphereMesh(buildSphereTriangles(10, 8));
 		axisMesh = createLineMesh(buildAxesSegments(20));
 		gridMesh = createLineMesh(buildPlaneGridSegments(18, 2));
 
 		const proj = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
-		gl.useProgram(pointProgram);
+		gl.useProgram(sphereProgram);
 		gl.uniformMatrix4fv(uProj, false, proj);
 		gl.uniform1f(uT, 1.0);
 		gl.uniform1f(uCloudDrift, 1.0);
 		gl.uniform1f(uCloudPulse, 1.0);
 		gl.uniform1f(uCloudFalloffRadius, 26.0);
 		gl.uniform1f(uCloudMinSpeed, 0.18);
-		gl.uniform1f(uFlowStrength, flowStrengthMultiplier);
-		gl.uniform1f(uFlowMaxSpeed, maxVelocityClamp);
-		gl.uniform1f(uFlowAnimationSpeed, flowAnimationSpeed);
+		gl.uniform1f(uFlowStrength, FLOW_STRENGTH);
+		gl.uniform1f(uFlowMaxSpeed, FLOW_MAX_SPEED);
+		gl.uniform1f(uFlowAnimationSpeed, FLOW_ANIMATION_SPEED);
 		gl.uniform1f(uCameraRadius, cameraRadius);
+		gl.uniform1f(uSphereRadius, BASE_SPHERE_RADIUS);
 		gl.uniform1f(uHidePositiveQuadrant, 0.0);
+		gl.uniform1f(uZRotation, 0.0);
 
 		gl.useProgram(lineProgram);
 		gl.uniformMatrix4fv(lUProj, false, proj);
+
+		initWebWorker();
 
 		lastFrameTime = performance.now();
 
 		function render(now: number) {
 			const dt = (now - lastFrameTime) / 1000;
 			lastFrameTime = now;
+			fpsElapsed += dt;
+			fpsFrameCount += 1;
+			if (fpsElapsed >= 0.25) {
+				fps = Math.round(fpsFrameCount / fpsElapsed);
+				fpsElapsed = 0;
+				fpsFrameCount = 0;
+			}
 
 			if (canvas.clientWidth !== canvas.width || canvas.clientHeight !== canvas.height) {
 				canvas.width = canvas.clientWidth;
 				canvas.height = canvas.clientHeight;
 				gl.viewport(0, 0, canvas.width, canvas.height);
 				const proj = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
-				gl.useProgram(pointProgram);
+				gl.useProgram(sphereProgram);
 				gl.uniformMatrix4fv(uProj, false, proj);
 				gl.useProgram(lineProgram);
 				gl.uniformMatrix4fv(lUProj, false, proj);
@@ -690,19 +827,21 @@ void main() {
 				z: Math.sin(cameraAzimuth) * horizontalRadius
 			};
 			const view = lookAt(eye, { x: 0, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
-			gl.useProgram(pointProgram);
+			gl.useProgram(sphereProgram);
 			gl.uniformMatrix4fv(uView, false, view);
 			gl.uniform1f(uCloudTime, now * 0.001);
-			gl.uniform1f(uFlowStrength, flowStrengthMultiplier);
-			gl.uniform1f(uFlowMaxSpeed, maxVelocityClamp);
-			gl.uniform1f(uFlowAnimationSpeed, flowAnimationSpeed);
+			gl.uniform1f(uFlowStrength, FLOW_STRENGTH);
+			gl.uniform1f(uFlowMaxSpeed, FLOW_MAX_SPEED);
+			gl.uniform1f(uFlowAnimationSpeed, FLOW_ANIMATION_SPEED);
 			gl.uniform1f(uCameraRadius, cameraRadius);
+			gl.uniform1f(uSphereRadius, BASE_SPHERE_RADIUS);
 			gl.uniform1f(uHidePositiveQuadrant, hidePositiveQuadrant ? 1.0 : 0.0);
+			gl.uniform1f(uZRotation, (zRotationDegrees * Math.PI) / 180);
 
 			gl.useProgram(lineProgram);
 			gl.uniformMatrix4fv(lUView, false, view);
 
-			gl.clearColor(0, 0, 0, 0);
+			gl.clearColor(0.058, 0.086, 0.118, 1.0);
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
 			if (gridMesh) {
@@ -719,13 +858,13 @@ void main() {
 				gl.drawArrays(gl.LINES, 0, axisMesh.vertexCount);
 			}
 
-			gl.useProgram(pointProgram);
+			gl.useProgram(sphereProgram);
 			for (const slot of slots) {
 				slot.t = Math.min(1.0, slot.t + dt / transitionDuration);
 				const eased = slot.t * slot.t * (3.0 - 2.0 * slot.t);
 				gl.uniform1f(uT, eased);
 				gl.bindVertexArray(slot.vao);
-				gl.drawArrays(gl.POINTS, 0, slot.pointCount);
+				gl.drawArraysInstanced(gl.TRIANGLES, 0, sphereMesh?.vertexCount ?? 0, slot.pointCount);
 			}
 
 			animFrameId = requestAnimationFrame(render);
@@ -786,21 +925,6 @@ void main() {
 
 			<div class="flex flex-wrap items-center gap-1.5">
 				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
-					>Slice</span
-				>
-				<button
-					type="button"
-					class="rounded border px-2 py-0.5 text-[11px] leading-4 font-medium transition hover:cursor-pointer {hidePositiveQuadrant
-						? 'border-[rgba(44,61,75,0.95)] bg-[rgba(44,61,75,0.95)] text-[rgba(243,229,205,0.98)]'
-						: 'border-[rgba(44,61,75,0.68)] bg-transparent text-[rgba(44,61,75,0.95)] hover:bg-[rgba(44,61,75,0.1)]'}"
-					onclick={() => (hidePositiveQuadrant = !hidePositiveQuadrant)}
-				>
-					Hide +X/+Y quadrant
-				</button>
-			</div>
-
-			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
 					>m</span
 				>
 				{#each mChoices as value}
@@ -817,34 +941,48 @@ void main() {
 				{/each}
 			</div>
 
-		</div>
+			<div class="flex flex-wrap items-center gap-1.5">
+				<button
+					type="button"
+					class="rounded border px-2 py-0.5 text-[11px] leading-4 font-medium transition hover:cursor-pointer {hidePositiveQuadrant
+						? 'border-[rgba(44,61,75,0.95)] bg-[rgba(44,61,75,0.95)] text-[rgba(243,229,205,0.98)]'
+						: 'border-[rgba(44,61,75,0.68)] bg-transparent text-[rgba(44,61,75,0.95)] hover:bg-[rgba(44,61,75,0.1)]'}"
+					onclick={() => setPositiveXYCrossSectionHidden(!hidePositiveQuadrant)}
+				>
+					{hidePositiveQuadrant ? 'Show +X/+Y cross section' : 'Hide +X/+Y cross section'}
+				</button>
+			</div>
 
-		<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-[rgba(44,61,75,0.88)]">
-			<label class="flex items-center gap-2">
-				<span class="font-semibold tracking-wide uppercase">Flow strength {flowStrengthMultiplier.toFixed(1)}</span>
-				<input type="range" min="0" max="4" step="0.1" bind:value={flowStrengthMultiplier} />
-			</label>
-
-			<label class="flex items-center gap-2">
-				<span class="font-semibold tracking-wide uppercase">Max speed {maxVelocityClamp.toFixed(2)}</span>
-				<input type="range" min="0.1" max="8" step="0.05" bind:value={maxVelocityClamp} />
-			</label>
-
-			<label class="flex items-center gap-2">
-				<span class="font-semibold tracking-wide uppercase">Animation {flowAnimationSpeed.toFixed(1)}</span>
-				<input type="range" min="0" max="4" step="0.1" bind:value={flowAnimationSpeed} />
-			</label>
-
-			<span class="rounded border border-[rgba(44,61,75,0.15)] px-2 py-1 font-medium">
-				m = {simulationValues.m} {simulationValues.m === 0 ? 'complex state has no current' : 'actual cloud particles circulate'}
-			</span>
+			<div class="flex items-center gap-2 text-[11px] leading-4 text-[rgba(44,61,75,0.95)]">
+				<label for="orbital-z-rotation" class="font-semibold tracking-wide uppercase"
+					>rotate z</label
+				>
+				<input
+					id="orbital-z-rotation"
+					type="range"
+					min="-180"
+					max="180"
+					step="1"
+					value={zRotationDegrees}
+					oninput={(event) => {
+						zRotationDegrees = Number((event.currentTarget as HTMLInputElement).value);
+					}}
+					class="h-1.5 w-28 accent-[rgba(44,61,75,0.95)] md:w-36"
+				/>
+				<span class="w-11 text-right tabular-nums">{zRotationDegrees}deg</span>
+			</div>
 		</div>
 	</div>
 
 	<div class="relative min-h-0 flex-1">
 		<div
-			class="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_14%_18%,rgba(216,176,122,0.18),transparent_44%),radial-gradient(circle_at_78%_12%,rgba(255,243,224,0.06),transparent_35%),linear-gradient(135deg,#0b141d_0%,#102230_60%,#132736_100%)]"
+			class="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_14%_18%,rgba(126,255,163,0.14),transparent_40%),radial-gradient(circle_at_78%_12%,rgba(214,255,228,0.05),transparent_32%),linear-gradient(135deg,#081017_0%,#0e1b25_60%,#142431_100%)]"
 		></div>
+		<div
+			class="pointer-events-none absolute top-3 left-3 z-20 rounded border border-[rgba(44,61,75,0.18)] bg-[rgba(243,229,205,0.86)] px-2 py-1 text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase backdrop-blur-sm"
+		>
+			FPS {fps}
+		</div>
 		<canvas
 			bind:this={canvas}
 			onpointerdown={onCanvasPointerDown}

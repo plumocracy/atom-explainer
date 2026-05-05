@@ -28,7 +28,7 @@ type HttpErrorLike = {
 
 const INTERNAL_MESSAGE = 'Internal server error';
 
-const codeByStatus = (status: number): AppErrorCode => {
+export const codeByStatus = (status: number): AppErrorCode => {
 	switch (status) {
 		case 400:
 			return 'BAD_REQUEST';
@@ -47,11 +47,11 @@ const codeByStatus = (status: number): AppErrorCode => {
 	}
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => {
+export const isRecord = (value: unknown): value is Record<string, unknown> => {
 	return typeof value === 'object' && value !== null;
 };
 
-const isHttpErrorLike = (value: unknown): value is HttpErrorLike => {
+export const isHttpErrorLike = (value: unknown): value is HttpErrorLike => {
 	if (!isRecord(value)) {
 		return false;
 	}

@@ -1,6 +1,9 @@
 import type { PageServerLoad } from './$types';
 import { env } from '$env/dynamic/private';
 import { appError, throwKitError } from '$lib/server/errors';
+import type { ChatButton } from '$lib/chat-buttons';
+import { parseCreateButtons } from '$lib/chat-buttons';
+import type { PersistedTourState } from '$lib/tours/tour-persistence';
 
 type ChatHistoryApiResponse = {
 	success: boolean;
@@ -8,6 +11,7 @@ type ChatHistoryApiResponse = {
 		id: string;
 		role: 'user' | 'assistant';
 		content: string;
+		tourState?: PersistedTourState | null;
 		toolCalls?: Array<{
 			id: string;
 			providerCallId: string | null;
@@ -19,6 +23,7 @@ type ChatHistoryApiResponse = {
 			createdAt: string;
 		}>;
 	}>;
+	currentTour?: PersistedTourState | null;
 	error?: {
 		message?: string;
 	};
@@ -27,6 +32,29 @@ type ChatHistoryApiResponse = {
 type UiHistoryMessage = {
 	role: 'user' | 'assistant' | 'tool';
 	content: string;
+	buttons?: ChatButton[];
+	toolCalls?: Array<{
+		toolName: string;
+		providerCallId?: string | null;
+		callIndex?: number;
+		argumentsRaw?: string;
+		argumentsJson?: unknown;
+		simulationValues?: {
+			n: number;
+			l: number;
+			m: number;
+		};
+		cameraTarget?: {
+			x: number;
+			y: number;
+			z: number;
+			durationMs?: number;
+		};
+		crossSectionHidden?: boolean;
+		visualizationMode?: 'orbital' | 'bohr';
+		atomicNumber?: number;
+	}>;
+	tourState?: PersistedTourState | null;
 	toolCall?: {
 		toolName: string;
 		providerCallId?: string | null;
@@ -44,10 +72,13 @@ type UiHistoryMessage = {
 			z: number;
 			durationMs?: number;
 		};
+		crossSectionHidden?: boolean;
+		visualizationMode?: 'orbital' | 'bohr';
+		atomicNumber?: number;
 	};
 };
 
-const parseSimulationValues = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+export const parseSimulationValues = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
 	if (toolName !== 'set_simulation_params' && toolName !== 'set_simulation_values') {
 		return undefined;
 	}
@@ -66,18 +97,22 @@ const parseSimulationValues = (toolName: string, argumentsJson: unknown, argumen
 	}
 
 	const values = parsed as { n?: unknown; l?: unknown; m?: unknown };
-	if (typeof values.n === 'number' && typeof values.l === 'number' && typeof values.m === 'number') {
+	if (
+		typeof values.n === 'number' &&
+		typeof values.l === 'number' &&
+		typeof values.m === 'number'
+	) {
 		return {
 			n: values.n,
 			l: values.l,
-			m: values.m,
+			m: values.m
 		};
 	}
 
 	return undefined;
 };
 
-const parseCameraTarget = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+export const parseCameraTarget = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
 	if (toolName !== 'move_camera_to_point') {
 		return undefined;
 	}
@@ -96,16 +131,90 @@ const parseCameraTarget = (toolName: string, argumentsJson: unknown, argumentsRa
 	}
 
 	const values = parsed as { x?: unknown; y?: unknown; z?: unknown; durationMs?: unknown };
-	if (typeof values.x === 'number' && typeof values.y === 'number' && typeof values.z === 'number') {
+	if (
+		typeof values.x === 'number' &&
+		typeof values.y === 'number' &&
+		typeof values.z === 'number'
+	) {
 		return {
 			x: values.x,
 			y: values.y,
 			z: values.z,
-			durationMs: typeof values.durationMs === 'number' ? values.durationMs : undefined,
+			durationMs: typeof values.durationMs === 'number' ? values.durationMs : undefined
 		};
 	}
 
 	return undefined;
+};
+
+const parseCrossSectionHidden = (
+	toolName: string,
+	argumentsJson: unknown,
+	argumentsRaw: string
+) => {
+	if (toolName !== 'toggle_positive_xy_cross_section') {
+		return undefined;
+	}
+
+	let parsed = argumentsJson;
+	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
+		try {
+			parsed = JSON.parse(argumentsRaw);
+		} catch {
+			parsed = null;
+		}
+	}
+
+	if (typeof parsed !== 'object' || parsed === null) {
+		return undefined;
+	}
+
+	const values = parsed as { hidden?: unknown };
+	return typeof values.hidden === 'boolean' ? values.hidden : undefined;
+};
+
+export const parseVisualizationMode = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+	if (toolName !== 'set_visualization_mode') {
+		return undefined;
+	}
+
+	let parsed = argumentsJson;
+	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
+		try {
+			parsed = JSON.parse(argumentsRaw);
+		} catch {
+			parsed = null;
+		}
+	}
+
+	if (typeof parsed !== 'object' || parsed === null) {
+		return undefined;
+	}
+
+	const values = parsed as { mode?: unknown };
+	return values.mode === 'orbital' || values.mode === 'bohr' ? values.mode : undefined;
+};
+
+export const parseAtomicNumber = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+	if (toolName !== 'set_bohr_atomic_number') {
+		return undefined;
+	}
+
+	let parsed = argumentsJson;
+	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
+		try {
+			parsed = JSON.parse(argumentsRaw);
+		} catch {
+			parsed = null;
+		}
+	}
+
+	if (typeof parsed !== 'object' || parsed === null) {
+		return undefined;
+	}
+
+	const values = parsed as { atomicNumber?: unknown };
+	return typeof values.atomicNumber === 'number' ? values.atomicNumber : undefined;
 };
 
 export const load: PageServerLoad = async (event) => {
@@ -130,7 +239,10 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	if (!payload || payload.success !== true || !Array.isArray(payload.messages)) {
-		throwKitError(appError.internal('Chat history response was malformed', { details: payload }), locals.requestId);
+		throwKitError(
+			appError.internal('Chat history response was malformed', { details: payload }),
+			locals.requestId
+		);
 	}
 
 	const safePayload = payload as {
@@ -139,6 +251,7 @@ export const load: PageServerLoad = async (event) => {
 			id: string;
 			role: 'user' | 'assistant';
 			content: string;
+			tourState?: PersistedTourState | null;
 			toolCalls?: Array<{
 				id: string;
 				providerCallId: string | null;
@@ -150,17 +263,30 @@ export const load: PageServerLoad = async (event) => {
 				createdAt: string;
 			}>;
 		}>;
+		currentTour?: PersistedTourState | null;
 	};
 	const historyMessages = safePayload.messages;
 	const messagesWithTools: UiHistoryMessage[] = [];
 
 	for (const message of historyMessages) {
-		messagesWithTools.push({
+		const uiMessage: UiHistoryMessage = {
 			role: message.role,
 			content: message.content,
-		});
+			tourState: message.tourState ?? null
+		};
+		messagesWithTools.push(uiMessage);
 
 		for (const toolCall of message.toolCalls ?? []) {
+			const buttons = parseCreateButtons(
+				toolCall.toolName,
+				toolCall.argumentsJson,
+				toolCall.argumentsRaw
+			);
+			if (buttons?.length) {
+				uiMessage.buttons = [...(uiMessage.buttons ?? []), ...buttons];
+				continue;
+			}
+
 			const simulationValues = parseSimulationValues(
 				toolCall.toolName,
 				toolCall.argumentsJson,
@@ -171,14 +297,24 @@ export const load: PageServerLoad = async (event) => {
 				toolCall.argumentsJson,
 				toolCall.argumentsRaw
 			);
-			messagesWithTools.push({
-				role: 'tool',
-				content: simulationValues
-					? `Set simulation values to n=${simulationValues.n}, l=${simulationValues.l}, m=${simulationValues.m}`
-					: cameraTarget
-						? `Moved camera to x=${cameraTarget.x}, y=${cameraTarget.y}, z=${cameraTarget.z}`
-						: `Ran tool ${toolCall.toolName}`,
-				toolCall: {
+			const crossSectionHidden = parseCrossSectionHidden(
+				toolCall.toolName,
+				toolCall.argumentsJson,
+				toolCall.argumentsRaw
+			);
+			const visualizationMode = parseVisualizationMode(
+				toolCall.toolName,
+				toolCall.argumentsJson,
+				toolCall.argumentsRaw
+			);
+			const atomicNumber = parseAtomicNumber(
+				toolCall.toolName,
+				toolCall.argumentsJson,
+				toolCall.argumentsRaw
+			);
+			uiMessage.toolCalls = [
+				...(uiMessage.toolCalls ?? []),
+				{
 					toolName: toolCall.toolName,
 					providerCallId: toolCall.providerCallId,
 					callIndex: toolCall.callIndex,
@@ -186,8 +322,11 @@ export const load: PageServerLoad = async (event) => {
 					argumentsJson: toolCall.argumentsJson,
 					simulationValues,
 					cameraTarget,
-				},
-			});
+					crossSectionHidden,
+					visualizationMode,
+					atomicNumber
+				}
+			];
 		}
 	}
 
@@ -195,5 +334,6 @@ export const load: PageServerLoad = async (event) => {
 		user,
 		chatEnabled,
 		messages: messagesWithTools,
+		currentTour: safePayload.currentTour ?? null
 	};
 };

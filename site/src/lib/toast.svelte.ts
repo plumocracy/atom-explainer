@@ -52,7 +52,7 @@ export const showToast = (input: ToastInput) => {
 	return toast.id;
 };
 
-const isApiErrorResponse = (value: unknown): value is ApiErrorResponse => {
+export const isApiErrorResponse = (value: unknown): value is ApiErrorResponse => {
 	if (typeof value !== 'object' || value === null) {
 		return false;
 	}
@@ -61,7 +61,7 @@ const isApiErrorResponse = (value: unknown): value is ApiErrorResponse => {
 	return maybeResponse.success === false && isPublicAppError(maybeResponse.error);
 };
 
-const parsePublicError = (value: unknown): PublicAppError | null => {
+export const parsePublicError = (value: unknown): PublicAppError | null => {
 	if (isPublicAppError(value)) {
 		return value;
 	}

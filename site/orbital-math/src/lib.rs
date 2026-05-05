@@ -200,7 +200,8 @@ fn complex_probability_density_cached(
     cos_theta: f64,
 ) -> f64 {
     let radial_val = radial_sampler.value(r);
-    let angular_val = angular_sampler.norm * legendre(angular_sampler.l, angular_sampler.abs_m, cos_theta);
+    let angular_val =
+        angular_sampler.norm * legendre(angular_sampler.l, angular_sampler.abs_m, cos_theta);
     radial_val * radial_val * angular_val * angular_val
 }
 
@@ -291,7 +292,15 @@ fn effective_gradient_step(step: f64, x: f64, y: f64, z: f64) -> f64 {
     1e-3 * scale
 }
 
-fn current_density_cartesian(n: u32, l: u32, m: i32, x: f64, y: f64, z: f64, step: f64) -> ([f64; 3], f64) {
+fn current_density_cartesian(
+    n: u32,
+    l: u32,
+    m: i32,
+    x: f64,
+    y: f64,
+    z: f64,
+    step: f64,
+) -> ([f64; 3], f64) {
     let h = effective_gradient_step(step, x, y, z);
     let psi = complex_psi_cartesian_value(n, l, m, x, y, z);
     let rho = psi.norm_sqr();
@@ -303,17 +312,26 @@ fn current_density_cartesian(n: u32, l: u32, m: i32, x: f64, y: f64, z: f64, ste
     let grad_x = {
         let plus = complex_psi_cartesian_value(n, l, m, x + h, y, z);
         let minus = complex_psi_cartesian_value(n, l, m, x - h, y, z);
-        Complex::new((plus.re - minus.re) / (2.0 * h), (plus.im - minus.im) / (2.0 * h))
+        Complex::new(
+            (plus.re - minus.re) / (2.0 * h),
+            (plus.im - minus.im) / (2.0 * h),
+        )
     };
     let grad_y = {
         let plus = complex_psi_cartesian_value(n, l, m, x, y + h, z);
         let minus = complex_psi_cartesian_value(n, l, m, x, y - h, z);
-        Complex::new((plus.re - minus.re) / (2.0 * h), (plus.im - minus.im) / (2.0 * h))
+        Complex::new(
+            (plus.re - minus.re) / (2.0 * h),
+            (plus.im - minus.im) / (2.0 * h),
+        )
     };
     let grad_z = {
         let plus = complex_psi_cartesian_value(n, l, m, x, y, z + h);
         let minus = complex_psi_cartesian_value(n, l, m, x, y, z - h);
-        Complex::new((plus.re - minus.re) / (2.0 * h), (plus.im - minus.im) / (2.0 * h))
+        Complex::new(
+            (plus.re - minus.re) / (2.0 * h),
+            (plus.im - minus.im) / (2.0 * h),
+        )
     };
 
     let psi_conj = psi.conj();
@@ -324,6 +342,122 @@ fn current_density_cartesian(n: u32, l: u32, m: i32, x: f64, y: f64, z: f64, ste
     ];
 
     (current, rho)
+}
+
+fn clamp_velocity(current: [f64; 3], rho: f64, velocity_cap: f64) -> [f64; 3] {
+    if rho <= 1e-12 {
+        return [0.0, 0.0, 0.0];
+    }
+
+    let mut velocity = [current[0] / rho, current[1] / rho, current[2] / rho];
+    let speed =
+        (velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]).sqrt();
+    if velocity_cap.is_finite() && velocity_cap > 0.0 && speed > velocity_cap {
+        let scale = velocity_cap / speed;
+        velocity[0] *= scale;
+        velocity[1] *= scale;
+        velocity[2] *= scale;
+    }
+
+    for component in &mut velocity {
+        if !component.is_finite() || component.abs() < 1e-10 {
+            *component = 0.0;
+        }
+    }
+
+    velocity
+}
+
+fn flow_velocity_at(
+    n: u32,
+    l: u32,
+    m: i32,
+    x: f64,
+    y: f64,
+    z: f64,
+    velocity_cap: f64,
+) -> ([f64; 3], f64) {
+    let (current, rho) = current_density_cartesian(n, l, m, x, y, z, 1e-3);
+    (clamp_velocity(current, rho, velocity_cap), rho)
+}
+
+fn rk4_step_complex_flow(
+    n: u32,
+    l: u32,
+    m: i32,
+    x: f64,
+    y: f64,
+    z: f64,
+    dt: f64,
+    velocity_cap: f64,
+) -> ([f64; 3], [f64; 3], f64) {
+    let (k1, rho1) = flow_velocity_at(n, l, m, x, y, z, velocity_cap);
+
+    let x2 = x + 0.5 * dt * k1[0];
+    let y2 = y + 0.5 * dt * k1[1];
+    let z2 = z + 0.5 * dt * k1[2];
+    let (k2, _) = flow_velocity_at(n, l, m, x2, y2, z2, velocity_cap);
+
+    let x3 = x + 0.5 * dt * k2[0];
+    let y3 = y + 0.5 * dt * k2[1];
+    let z3 = z + 0.5 * dt * k2[2];
+    let (k3, _) = flow_velocity_at(n, l, m, x3, y3, z3, velocity_cap);
+
+    let x4 = x + dt * k3[0];
+    let y4 = y + dt * k3[1];
+    let z4 = z + dt * k3[2];
+    let (k4, _) = flow_velocity_at(n, l, m, x4, y4, z4, velocity_cap);
+
+    let next_x = x + (dt / 6.0) * (k1[0] + 2.0 * k2[0] + 2.0 * k3[0] + k4[0]);
+    let next_y = y + (dt / 6.0) * (k1[1] + 2.0 * k2[1] + 2.0 * k3[1] + k4[1]);
+    let next_z = z + (dt / 6.0) * (k1[2] + 2.0 * k2[2] + 2.0 * k3[2] + k4[2]);
+    let (next_velocity, next_rho) = flow_velocity_at(n, l, m, next_x, next_y, next_z, velocity_cap);
+
+    ([next_x, next_y, next_z], next_velocity, rho1.min(next_rho))
+}
+
+fn sample_complex_flow_particle(
+    radial_sampler: &RadialSampler,
+    angular_sampler: &AngularSampler,
+    n: u32,
+    l: u32,
+    m: i32,
+    r_max: f64,
+    rejection_scale: f64,
+    velocity_cap: f64,
+    rng: &mut XorShift64,
+) -> [f32; 6] {
+    let mut tuned_scale = rejection_scale;
+
+    loop {
+        let r = rng.next_f64() * r_max;
+        let cos_t = 1.0 - 2.0 * rng.next_f64();
+        let sin_t = (1.0 - cos_t * cos_t).max(0.0).sqrt();
+        let phi = TAU * rng.next_f64();
+
+        let p = complex_probability_density_cached(radial_sampler, angular_sampler, r, cos_t);
+        let accept_prob = p * tuned_scale;
+        if accept_prob >= 1.0 {
+            tuned_scale = AUTO_SCALE_TARGET / p;
+            continue;
+        }
+
+        if rng.next_f64() < accept_prob {
+            let (sin_p, cos_p) = phi.sin_cos();
+            let x = r * sin_t * cos_p;
+            let y = r * sin_t * sin_p;
+            let z = r * cos_t;
+            let (velocity, _) = flow_velocity_at(n, l, m, x, y, z, velocity_cap);
+            return [
+                x as f32,
+                y as f32,
+                z as f32,
+                velocity[0] as f32,
+                velocity[1] as f32,
+                velocity[2] as f32,
+            ];
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -483,7 +617,8 @@ pub fn probability_current_velocity_cartesian(
     }
 
     let mut velocity = [current[0] / rho, current[1] / rho, current[2] / rho];
-    let speed = (velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]).sqrt();
+    let speed =
+        (velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]).sqrt();
     if velocity_cap.is_finite() && velocity_cap > 0.0 && speed > velocity_cap {
         let scale = velocity_cap / speed;
         velocity[0] *= scale;
@@ -597,7 +732,7 @@ pub fn sample_batch_complex_flow(
         return Vec::new();
     }
 
-    let target_len = count as usize * 4;
+    let target_len = count as usize * 6;
     let mut samples = Vec::with_capacity(target_len);
 
     let seed = ((js_sys::Math::random() * u64::MAX as f64) as u64)
@@ -630,25 +765,101 @@ pub fn sample_batch_complex_flow(
             let z = r * cos_t;
 
             let (current, rho) = current_density_cartesian(n, l, m, x, y, z, 1e-3);
-            let r_xy_sq = x * x + y * y;
-            let omega = if rho <= 1e-12 || r_xy_sq <= 1e-10 {
-                0.0
-            } else {
-                let vx = current[0] / rho;
-                let vy = current[1] / rho;
-                let raw = (x * vy - y * vx) / r_xy_sq;
-                if raw.is_finite() {
-                    raw.clamp(-32.0, 32.0)
-                } else {
-                    0.0
-                }
-            };
+            let velocity = clamp_velocity(current, rho, 24.0);
 
             samples.push(x as f32);
             samples.push(y as f32);
             samples.push(z as f32);
-            samples.push(omega as f32);
+            samples.push(velocity[0] as f32);
+            samples.push(velocity[1] as f32);
+            samples.push(velocity[2] as f32);
         }
+    }
+
+    samples
+}
+
+#[wasm_bindgen]
+pub fn advance_batch_complex_flow(
+    n: u32,
+    l: u32,
+    m: i32,
+    positions: Vec<f32>,
+    dt: f64,
+    r_max: f64,
+    rejection_scale: f64,
+) -> Vec<f32> {
+    if positions.is_empty() || positions.len() % 3 != 0 || r_max <= 0.0 || rejection_scale <= 0.0 {
+        return Vec::new();
+    }
+
+    let radial_sampler = RadialSampler::new(n, l);
+    let angular_sampler = AngularSampler::new(l, m);
+    if radial_sampler.norm == 0.0 || angular_sampler.norm == 0.0 {
+        return Vec::new();
+    }
+
+    let target_len = (positions.len() / 3) * 6;
+    let mut samples = Vec::with_capacity(target_len);
+    let step_dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
+    let respawn_radius = r_max * 1.1;
+    let seed = ((js_sys::Math::random() * u64::MAX as f64) as u64)
+        ^ ((n as u64) << 32)
+        ^ ((l as u64) << 16)
+        ^ (m as i64 as u64)
+        ^ 0xa5a5_1f3d;
+    let mut rng = XorShift64::new(seed);
+
+    for idx in (0..positions.len()).step_by(3) {
+        let x = positions[idx] as f64;
+        let y = positions[idx + 1] as f64;
+        let z = positions[idx + 2] as f64;
+
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            samples.extend_from_slice(&sample_complex_flow_particle(
+                &radial_sampler,
+                &angular_sampler,
+                n,
+                l,
+                m,
+                r_max,
+                rejection_scale,
+                24.0,
+                &mut rng,
+            ));
+            continue;
+        }
+
+        let ([next_x, next_y, next_z], next_velocity, rho) =
+            rk4_step_complex_flow(n, l, m, x, y, z, step_dt, 24.0);
+        let next_radius = (next_x * next_x + next_y * next_y + next_z * next_z).sqrt();
+
+        if rho <= 1e-12
+            || !next_x.is_finite()
+            || !next_y.is_finite()
+            || !next_z.is_finite()
+            || next_radius > respawn_radius
+        {
+            samples.extend_from_slice(&sample_complex_flow_particle(
+                &radial_sampler,
+                &angular_sampler,
+                n,
+                l,
+                m,
+                r_max,
+                rejection_scale,
+                24.0,
+                &mut rng,
+            ));
+            continue;
+        }
+
+        samples.push(next_x as f32);
+        samples.push(next_y as f32);
+        samples.push(next_z as f32);
+        samples.push(next_velocity[0] as f32);
+        samples.push(next_velocity[1] as f32);
+        samples.push(next_velocity[2] as f32);
     }
 
     samples

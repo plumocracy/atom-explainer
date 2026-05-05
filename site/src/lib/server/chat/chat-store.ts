@@ -14,6 +14,7 @@ type RecordUserMessageInput = {
 	userId: string;
 	conversationId: string;
 	message: string;
+	userInputTokens: number;
 	simulation: ChatSimulationContext;
 	model: MessageModel;
 };
@@ -24,11 +25,21 @@ type FinalizeAssistantTurnInput = {
 	userMessageId: string;
 	assistantMessage: string;
 	model: MessageModel;
+	metadata?: string | null;
 	usage: {
 		completionTokens: number;
 		promptTokens: number;
 	};
 	toolCalls: StreamedToolCall[];
+};
+
+type RecordAssistantMessageInput = {
+	userId: string;
+	conversationId: string;
+	assistantMessage: string;
+	model: MessageModel;
+	toolCalls?: StreamedToolCall[];
+	metadata?: string | null;
 };
 
 export const recordUserMessage = async (
@@ -42,6 +53,7 @@ export const recordUserMessage = async (
 				conversationId: input.conversationId,
 				role: 'user',
 				content: input.message,
+				userInputTokens: input.userInputTokens,
 				simulationValues: JSON.stringify(input.simulation),
 				model: input.model
 			})
@@ -50,6 +62,13 @@ export const recordUserMessage = async (
 		if (!userMessage) {
 			return err(appError.internal('Could not insert user message'));
 		}
+
+		await db
+			.update(conversations)
+			.set({
+				userInputTokens: sql`${conversations.userInputTokens} + ${input.userInputTokens}`
+			})
+			.where(eq(conversations.id, input.conversationId));
 
 		return ok(userMessage.id);
 	} catch (error) {
@@ -68,6 +87,7 @@ export const finalizeAssistantTurn = async (
 				conversationId: input.conversationId,
 				role: 'assistant',
 				content: input.assistantMessage,
+				simulationValues: input.metadata ?? null,
 				model: input.model
 			})
 			.returning({ id: messages.id });
@@ -106,6 +126,46 @@ export const finalizeAssistantTurn = async (
 		return ok(undefined);
 	} catch (error) {
 		return err(appError.internal('Could not finalize assistant response', { cause: error }));
+	}
+};
+
+export const recordAssistantMessage = async (
+	input: RecordAssistantMessageInput
+): Promise<ServerResult<string>> => {
+	try {
+		const [assistantMessage] = await db
+			.insert(messages)
+			.values({
+				userId: input.userId,
+				conversationId: input.conversationId,
+				role: 'assistant',
+				content: input.assistantMessage,
+				simulationValues: input.metadata ?? null,
+				model: input.model
+			})
+			.returning({ id: messages.id });
+
+		if (!assistantMessage) {
+			return err(appError.internal('Could not insert assistant message'));
+		}
+
+		const toolCallRows: MessageToolCallInsert[] = (input.toolCalls ?? []).map((toolCall) => ({
+			messageId: assistantMessage.id,
+			providerCallId: toolCall.id ?? null,
+			callIndex: toolCall.index,
+			toolType: toolCall.type,
+			toolName: toolCall.function.name,
+			argumentsRaw: toolCall.function.arguments,
+			argumentsJson: toolCall.function.parsedArguments ?? null
+		}));
+
+		if (toolCallRows.length) {
+			await db.insert(messageToolCalls).values(toolCallRows);
+		}
+
+		return ok(assistantMessage.id);
+	} catch (error) {
+		return err(appError.internal('Could not insert assistant message', { cause: error }));
 	}
 };
 

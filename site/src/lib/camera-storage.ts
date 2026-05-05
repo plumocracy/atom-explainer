@@ -13,9 +13,9 @@ type CameraLimits = {
 	maxRadius: number;
 };
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const isFiniteNumber = (value: unknown): value is number =>
+export const isFiniteNumber = (value: unknown): value is number =>
 	typeof value === 'number' && Number.isFinite(value);
 
 export const loadCameraPose = (

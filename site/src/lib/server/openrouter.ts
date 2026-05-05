@@ -32,7 +32,7 @@ export type ModelQuery = z.infer<typeof ModelQuerySchema>;
 
 type OpenRouterErrorWithStatus = Error & { statusCode?: number };
 
-const mapOpenRouterError = (error: OpenRouterErrorWithStatus) => {
+export const mapOpenRouterError = (error: OpenRouterErrorWithStatus) => {
 	if (error.statusCode === 401) {
 		return appError.unauthorized('Invalid API key');
 	}

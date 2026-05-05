@@ -1,7 +1,11 @@
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 import { redirect } from '@sveltejs/kit';
 import { throwKitError } from '$lib/server/errors';
-import { getConversationHistory, getConversationSummaries } from '$lib/server/conversation';
+import {
+	createConversation,
+	getConversationHistory,
+	getConversationSummaries
+} from '$lib/server/conversation';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	if (!locals.user) {
@@ -38,7 +42,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	const tokenUsage = conversations.reduce(
 		(totals, conversation) => {
-			totals.inputTokens += conversation.promptTokens;
+			totals.inputTokens += conversation.userInputTokens;
 			totals.outputTokens += conversation.completionTokens;
 			return totals;
 		},
@@ -50,6 +54,21 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		conversations,
 		selectedConversationId: selectedConversation?.id ?? null,
 		history,
-		tokenUsage,
+		tokenUsage
 	};
+};
+
+export const actions: Actions = {
+	createConversation: async ({ locals }) => {
+		if (!locals.user) {
+			throw redirect(302, '/login');
+		}
+
+		const createdConversation = await createConversation(locals.user.id);
+		if (!createdConversation.ok) {
+			throwKitError(createdConversation.error, locals.requestId);
+		}
+
+		throw redirect(303, `/dashboard?conversation=${createdConversation.data.id}`);
+	}
 };

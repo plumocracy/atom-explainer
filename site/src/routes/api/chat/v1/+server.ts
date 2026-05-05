@@ -6,7 +6,8 @@ import {
 	getActiveConversation,
 	getConversationHistory,
 	getConversationMessages,
-	getOrCreateConversation,
+	getOrCreateConversationWithStatus,
+	updateConversationTitle,
 	touchConversation
 } from '$lib/server/conversation';
 import {
@@ -21,16 +22,90 @@ import {
 	createChatStream,
 	createToolExplanation
 } from '$lib/server/chat/chat-client';
+import { estimateUserInputTokens } from '$lib/server/chat/user-input-tokens';
+import { parseCreateButtons } from '$lib/chat-buttons';
+import { generateConversationTitle } from '$lib/server/chat/chat-title';
 import { ToolCallStreamAccumulator } from '$lib/server/chat/chat-tools';
 import {
 	finalizeAssistantTurn,
 	getToolCallsForMessage,
+	recordAssistantMessage,
 	recordUserMessage
 } from '$lib/server/chat/chat-store';
+import { judgeTourConfirmation, judgeTourStep } from '$lib/server/tours/tour-judge';
+import { parsePersistedTourState, stringifyPersistedTourState } from '$lib/tours/tour-persistence';
+import { getNextTourStep, getTourCompletionMessage, getTourStep } from '$lib/tours/tours';
+import { createTourToolCalls } from '$lib/tours/tour-tool-calls';
 
 const CHAT_MODEL = 'deepseek-3.2';
 
-const hasUserFacingText = (content: string): boolean => {
+const persistRunningTourMessage = async (input: {
+	userId: string;
+	conversationId: string;
+	assistantMessage: string;
+	tourId: string;
+	stepId: string;
+	attemptCount: number;
+	awaitingConfirmation: boolean;
+}) =>
+	recordAssistantMessage({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		assistantMessage: input.assistantMessage,
+		model: CHAT_MODEL,
+		metadata: stringifyPersistedTourState({
+			kind: 'guided_tour_state',
+			status: 'running',
+			tourId: input.tourId,
+			stepId: input.stepId,
+			attemptCount: input.attemptCount,
+			awaitingConfirmation: input.awaitingConfirmation
+		})
+	});
+
+const persistNextTourStep = async (input: {
+	userId: string;
+	conversationId: string;
+	tourId: string;
+	nextStep: NonNullable<ReturnType<typeof getNextTourStep>>;
+}) =>
+	recordAssistantMessage({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		assistantMessage: input.nextStep.assistantMarkdown,
+		model: CHAT_MODEL,
+		metadata: stringifyPersistedTourState({
+			kind: 'guided_tour_state',
+			status: 'running',
+			tourId: input.tourId,
+			stepId: input.nextStep.id,
+			attemptCount: 0,
+			awaitingConfirmation: false
+		}),
+		toolCalls: createTourToolCalls(input.nextStep.actions)
+	});
+
+const persistFinishedTour = async (input: {
+	userId: string;
+	conversationId: string;
+	tourId: string;
+}) =>
+	recordAssistantMessage({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		assistantMessage: getTourCompletionMessage(input.tourId),
+		model: CHAT_MODEL,
+		metadata: stringifyPersistedTourState({
+			kind: 'guided_tour_state',
+			status: 'finished',
+			tourId: input.tourId,
+			stepId: null,
+			attemptCount: 0,
+			awaitingConfirmation: false
+		})
+	});
+
+export const _hasUserFacingText = (content: string): boolean => {
 	if (!content.trim()) {
 		return false;
 	}
@@ -38,7 +113,7 @@ const hasUserFacingText = (content: string): boolean => {
 	return /[A-Za-z0-9]/.test(content);
 };
 
-const parseSimulationValuesFromToolCall = (toolCall: StreamedToolCall) => {
+export const _parseSimulationValuesFromToolCall = (toolCall: StreamedToolCall) => {
 	let parsedArgs = toolCall.function.parsedArguments;
 
 	if ((typeof parsedArgs !== 'object' || parsedArgs === null) && toolCall.function.arguments) {
@@ -65,7 +140,7 @@ const parseSimulationValuesFromToolCall = (toolCall: StreamedToolCall) => {
 	return null;
 };
 
-const parseCameraTargetFromToolCall = (toolCall: StreamedToolCall) => {
+export const _parseCameraTargetFromToolCall = (toolCall: StreamedToolCall) => {
 	let parsedArgs = toolCall.function.parsedArguments;
 
 	if ((typeof parsedArgs !== 'object' || parsedArgs === null) && toolCall.function.arguments) {
@@ -92,23 +167,66 @@ const parseCameraTargetFromToolCall = (toolCall: StreamedToolCall) => {
 	return null;
 };
 
-const synthesizeToolOnlyResponse = (toolCalls: StreamedToolCall[]): string => {
+export const _parseCrossSectionHiddenFromToolCall = (toolCall: StreamedToolCall) => {
+	let parsedArgs = toolCall.function.parsedArguments;
+
+	if ((typeof parsedArgs !== 'object' || parsedArgs === null) && toolCall.function.arguments) {
+		try {
+			parsedArgs = JSON.parse(toolCall.function.arguments);
+		} catch {
+			parsedArgs = null;
+		}
+	}
+
+	if (typeof parsedArgs !== 'object' || parsedArgs === null) {
+		return null;
+	}
+
+	const values = parsedArgs as { hidden?: unknown };
+	return typeof values.hidden === 'boolean' ? values.hidden : null;
+};
+
+export const _synthesizeToolOnlyResponse = (toolCalls: StreamedToolCall[]): string => {
 	const summaries = toolCalls.map((toolCall) => {
 		if (
 			toolCall.function.name === 'set_simulation_params' ||
 			toolCall.function.name === 'set_simulation_values'
 		) {
-			const values = parseSimulationValuesFromToolCall(toolCall);
+			const values = _parseSimulationValuesFromToolCall(toolCall);
 			if (values) {
 				return `I updated the simulation to n=${values.n}, l=${values.l}, m=${values.m}.`;
 			}
 		}
 
 		if (toolCall.function.name === 'move_camera_to_point') {
-			const camera = parseCameraTargetFromToolCall(toolCall);
+			const camera = _parseCameraTargetFromToolCall(toolCall);
 			if (camera) {
 				return `I moved the camera to x=${camera.x}, y=${camera.y}, z=${camera.z}.`;
 			}
+		}
+
+		if (toolCall.function.name === 'toggle_positive_xy_cross_section') {
+			const hidden = _parseCrossSectionHiddenFromToolCall(toolCall);
+			if (typeof hidden === 'boolean') {
+				return hidden
+					? 'I hid the +X/+Y cross section.'
+					: 'I showed the +X/+Y cross section again.';
+			}
+		}
+
+		if (
+			(toolCall.function.name === 'create_button' ||
+				toolCall.function.name === 'create_toggle_button' ||
+				toolCall.function.name === 'create_cross_section_toggle_button') &&
+			parseCreateButtons(
+				toolCall.function.name,
+				toolCall.function.parsedArguments,
+				toolCall.function.arguments
+			)?.length
+		) {
+			return toolCall.function.name === 'create_button'
+				? 'I added buttons with ready-to-use simulation actions.'
+				: 'I added a synced toggle button.';
 		}
 
 		return `I used the ${toolCall.function.name} tool.`;
@@ -158,6 +276,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 					role: message.role,
 					content: message.content,
 					createdAt: message.createdAt,
+					tourState: parsePersistedTourState(message.simulationValues),
 					toolCalls: toolCallsResult.data.map((toolCall) => ({
 						id: toolCall.id,
 						providerCallId: toolCall.providerCallId,
@@ -172,10 +291,14 @@ export const GET: RequestHandler = async ({ locals }) => {
 			})
 		);
 
+		const currentTour =
+			[...messagesWithToolCalls].reverse().find((message) => message.tourState)?.tourState ?? null;
+
 		return json({
 			success: true,
 			conversationId,
-			messages: messagesWithToolCalls
+			messages: messagesWithToolCalls,
+			currentTour
 		});
 	} catch (error) {
 		return toErrorResponse(error, locals.requestId);
@@ -200,13 +323,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 
 		const userId = userResult.data.id;
-		const { message, simulation } = payload.data;
+		const { message, simulation, guidedTour } = payload.data;
+		const userInputTokens = estimateUserInputTokens(message);
 
-		const conversationResult = await getOrCreateConversation(userId);
+		const conversationResult = await getOrCreateConversationWithStatus(userId);
 		if (!conversationResult.ok) {
 			throw conversationResult.error;
 		}
-		const conversation = conversationResult.data;
+		const { conversation } = conversationResult.data;
+		const titlePromise = conversation.title ? null : generateConversationTitle(message);
 
 		const touchResult = await touchConversation(conversation.id);
 		if (!touchResult.ok) {
@@ -217,6 +342,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			userId,
 			conversationId: conversation.id,
 			message,
+			userInputTokens,
 			simulation,
 			model: CHAT_MODEL
 		});
@@ -231,7 +357,145 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 		const history = historyResult.data;
 
-		const systemPrompt = buildSystemPrompt(simulation);
+		const activeTourStep = guidedTour
+			? getTourStep(guidedTour.tourId, guidedTour.stepId)
+			: undefined;
+		let preflightJudged:
+			| Awaited<ReturnType<typeof judgeTourStep>>
+			| null = null;
+
+		if (guidedTour?.awaitingConfirmation && activeTourStep) {
+			const stream = new ReadableStream({
+				async start(controller) {
+					try {
+						const judged = await judgeTourConfirmation({
+							step: activeTourStep,
+							userMessage: message,
+							recentConversation: history.slice(-6)
+						});
+						if (!judged.ok) {
+							throw judged.error;
+						}
+
+						if (judged.data.affirmative) {
+							const nextStep = getNextTourStep(guidedTour.tourId, guidedTour.stepId);
+							if (nextStep) {
+								const persistedStepResult = await persistNextTourStep({
+									userId,
+									conversationId: conversation.id,
+									tourId: guidedTour.tourId,
+									nextStep
+								});
+								if (!persistedStepResult.ok) {
+									throw persistedStepResult.error;
+								}
+
+								controller.enqueue(encodeSse({ tour: { type: 'advance', step: nextStep } }));
+							} else {
+								const persistedFinishResult = await persistFinishedTour({
+									userId,
+									conversationId: conversation.id,
+									tourId: guidedTour.tourId
+								});
+								if (!persistedFinishResult.ok) {
+									throw persistedFinishResult.error;
+								}
+
+								controller.enqueue(
+									encodeSse({
+										tour: { type: 'finish', message: getTourCompletionMessage(guidedTour.tourId) }
+									})
+								);
+							}
+						} else {
+							const persistedReplyResult = await persistRunningTourMessage({
+								userId,
+								conversationId: conversation.id,
+								assistantMessage: judged.data.reply,
+								tourId: guidedTour.tourId,
+								stepId: guidedTour.stepId,
+								attemptCount: guidedTour.attemptCount,
+								awaitingConfirmation: false
+							});
+							if (!persistedReplyResult.ok) {
+								throw persistedReplyResult.error;
+							}
+
+							controller.enqueue(
+								encodeSse({
+									tour: {
+										type: 'message',
+										message: judged.data.reply,
+										awaitingConfirmation: false
+									}
+								})
+							);
+						}
+
+						controller.enqueue(encodeSse({ done: true }));
+						controller.close();
+					} catch (error) {
+						const publicError = toPublicError(error, { requestId: locals.requestId });
+						controller.enqueue(encodeSse({ error: publicError }));
+						controller.enqueue(encodeSse({ done: true }));
+						controller.close();
+					}
+				},
+				cancel() {
+					// no-op
+				}
+			});
+
+			return new Response(stream, { headers: CHAT_STREAM_HEADERS });
+		}
+
+		if (guidedTour && activeTourStep) {
+			preflightJudged = await judgeTourStep({
+				step: activeTourStep,
+				userMessage: message,
+				attemptCount: guidedTour.attemptCount,
+				recentConversation: history.slice(-6)
+			});
+
+			if (preflightJudged.ok && preflightJudged.data.outcome === 'confirm') {
+				const confirmationReply = preflightJudged.data.reply;
+				const persistedReplyResult = await persistRunningTourMessage({
+					userId,
+					conversationId: conversation.id,
+					assistantMessage: confirmationReply,
+					tourId: guidedTour.tourId,
+					stepId: guidedTour.stepId,
+					attemptCount: guidedTour.attemptCount,
+					awaitingConfirmation: true
+				});
+				if (!persistedReplyResult.ok) {
+					throw persistedReplyResult.error;
+				}
+
+				const stream = new ReadableStream({
+					start(controller) {
+						controller.enqueue(
+							encodeSse({
+								tour: {
+									type: 'message',
+									message: confirmationReply,
+									awaitingConfirmation: true
+								}
+							})
+						);
+						controller.enqueue(encodeSse({ done: true }));
+						controller.close();
+					},
+					cancel() {
+						// no-op
+					}
+				});
+
+				return new Response(stream, { headers: CHAT_STREAM_HEADERS });
+			}
+		}
+
+		const systemPrompt = buildSystemPrompt(simulation, guidedTour);
 
 		const stream = new ReadableStream({
 			async start(controller) {
@@ -301,7 +565,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						}
 					}
 
-					if (!hasUserFacingText(assistantResponse) && allToolCalls.length) {
+					if (!_hasUserFacingText(assistantResponse) && allToolCalls.length) {
 						try {
 							const followup = await createToolExplanation({
 								systemPrompt,
@@ -315,15 +579,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 								completionTokens: usage.completionTokens + followup.usage.completionTokens
 							};
 
-							if (hasUserFacingText(followup.content)) {
+							if (_hasUserFacingText(followup.content)) {
 								assistantResponse = followup.content;
 								controller.enqueue(encodeSse({ token: assistantResponse }));
 							} else {
-								assistantResponse = synthesizeToolOnlyResponse(allToolCalls);
+								assistantResponse = _synthesizeToolOnlyResponse(allToolCalls);
 								controller.enqueue(encodeSse({ token: assistantResponse }));
 							}
 						} catch {
-							assistantResponse = synthesizeToolOnlyResponse(allToolCalls);
+							assistantResponse = _synthesizeToolOnlyResponse(allToolCalls);
 							controller.enqueue(encodeSse({ token: assistantResponse }));
 						}
 					}
@@ -348,6 +612,39 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					});
 					if (!finalizeResult.ok) {
 						throw finalizeResult.error;
+					}
+
+					if (titlePromise) {
+						const titleResult = await titlePromise;
+						if (titleResult.ok) {
+							const titleUpdateResult = await updateConversationTitle(
+								conversation.id,
+								titleResult.data
+							);
+
+							if (!titleUpdateResult.ok) {
+								console.error(titleUpdateResult.error);
+							}
+						} else {
+							console.error(titleResult.error);
+						}
+					}
+
+					if (preflightJudged?.ok) {
+						controller.enqueue(
+							encodeSse({
+								tour:
+									preflightJudged.data.outcome === 'hold'
+										? {
+												type: 'hold',
+												messageType: preflightJudged.data.messageType
+										  }
+										: {
+												type: 'stay',
+												messageType: preflightJudged.data.messageType
+										  }
+							})
+						);
 					}
 
 					controller.enqueue(encodeSse({ done: true }));

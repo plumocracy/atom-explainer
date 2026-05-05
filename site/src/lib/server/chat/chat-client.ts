@@ -37,7 +37,7 @@ type ToolExplanationResult = {
 	};
 };
 
-const parseArgumentsText = (value: unknown): string => {
+export const parseArgumentsText = (value: unknown): string => {
 	if (typeof value === 'string') {
 		return value;
 	}
@@ -53,7 +53,7 @@ const parseArgumentsText = (value: unknown): string => {
 	}
 };
 
-const parseArgumentsJson = (value: string): unknown | undefined => {
+export const parseArgumentsJson = (value: string): unknown | undefined => {
 	const trimmed = value.trim();
 	if (!trimmed) {
 		return undefined;
@@ -66,7 +66,7 @@ const parseArgumentsJson = (value: string): unknown | undefined => {
 	}
 };
 
-const collectToolCallsFromResponse = (response: unknown, indexOffset = 0): StreamedToolCall[] => {
+export const collectToolCallsFromResponse = (response: unknown, indexOffset = 0): StreamedToolCall[] => {
 	if (typeof response !== 'object' || response === null) {
 		return [];
 	}
@@ -109,7 +109,7 @@ const collectToolCallsFromResponse = (response: unknown, indexOffset = 0): Strea
 	return parsed;
 };
 
-const summarizeToolCalls = (toolCalls: StreamedToolCall[]): string => {
+export const summarizeToolCalls = (toolCalls: StreamedToolCall[]): string => {
 	return JSON.stringify(
 		toolCalls.map((toolCall) => ({
 			name: toolCall.function.name,
@@ -118,7 +118,7 @@ const summarizeToolCalls = (toolCalls: StreamedToolCall[]): string => {
 	);
 };
 
-const makeToolCallFingerprint = (toolCall: StreamedToolCall): string => {
+export const makeToolCallFingerprint = (toolCall: StreamedToolCall): string => {
 	const args = toolCall.function.parsedArguments ?? toolCall.function.arguments;
 	let normalizedArgs = '';
 

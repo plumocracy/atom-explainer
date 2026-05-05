@@ -4,7 +4,7 @@ import { auth } from '$lib/server/auth';
 import { APIError } from 'better-auth/api';
 import { appError, normalizeError, toPublicError } from '$lib/server/errors';
 
-const toAuthFailure = (error: unknown, requestId: string) => {
+export const toAuthFailure = (error: unknown, requestId: string) => {
 	if (error instanceof APIError) {
 		const normalized = normalizeError(
 			appError.badRequest(error.message || 'Authentication request failed'),
