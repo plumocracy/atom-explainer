@@ -3,6 +3,7 @@
 	import type { Message } from '$lib/chat.svelte';
 	import { renderMarkdown } from '$lib/render_markdown';
 	import { fade } from 'svelte/transition';
+	import StandingWaveCanvas from './StandingWaveCanvas.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 
 	let { message }: { message: Message } = $props();
@@ -58,6 +59,7 @@
 	>
 		{#if message.role === 'assistant'}
 			<div class="markdown-body">
+				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 				{@html renderedAssistantHtml}
 				{#if message.pending}
 					<span class="cursor">|</span>
@@ -81,6 +83,21 @@
 					>
 						{getChatButtonLabel(button)}
 					</button>
+				{/each}
+			</div>
+		{/if}
+		{#if message.role === 'assistant' && message.visualizations?.length}
+			<div class="mt-3 space-y-3">
+				{#each message.visualizations as visualization, idx (`${visualization.type}:${idx}`)}
+					{#if visualization.type === 'standing_wave'}
+						<div
+							class="overflow-hidden rounded-2xl border border-[rgba(44,61,75,0.14)] bg-[rgba(8,16,23,0.96)]"
+						>
+							<div class="h-[28rem] w-full">
+								<StandingWaveCanvas />
+							</div>
+						</div>
+					{/if}
 				{/each}
 			</div>
 		{/if}

@@ -7,6 +7,7 @@ import {
 	applyToolCallMessage,
 	createChatMessage,
 	getBohrShellDistribution,
+	type MessageVisualization,
 	orbitalViewState,
 	type CameraTarget,
 	type Message,
@@ -58,10 +59,11 @@ export const parseToolCalls = (value: unknown): StreamToolCall[] => {
 	return [];
 };
 
-export const applySimulationToolCalls = (value: unknown, simulationValues: SimulationValues) => {
+export const applySimulationToolCalls = (value: unknown) => {
 	const toolCalls = parseToolCalls(value);
 	const toolCallMessages: ToolCallMessage[] = [];
 	const buttons = [] as NonNullable<Message['buttons']>;
+	const visualizations = [] as MessageVisualization[];
 
 	for (const toolCall of toolCalls) {
 		const toolFunction = toolCall.function;
@@ -85,6 +87,18 @@ export const applySimulationToolCalls = (value: unknown, simulationValues: Simul
 		const parsedButtons = parseCreateButtons(toolName, parsedArgs, toolFunction.arguments ?? '');
 		if (parsedButtons?.length) {
 			buttons.push(...parsedButtons);
+			continue;
+		}
+
+		if (toolName === 'insert_standing_wave_visualization') {
+			visualizations.push({ type: 'standing_wave' });
+			toolCallMessages.push({
+				toolName,
+				providerCallId: toolCall.id ?? null,
+				callIndex: toolCall.index,
+				argumentsRaw: toolFunction.arguments,
+				argumentsJson: parsedArgs
+			});
 			continue;
 		}
 
@@ -131,7 +145,7 @@ export const applySimulationToolCalls = (value: unknown, simulationValues: Simul
 		toolCallMessages.push(parsedToolCall);
 	}
 
-	return { toolCallMessages, buttons };
+	return { toolCallMessages, buttons, visualizations };
 };
 
 export const summarizeToolCall = (toolCall: ToolCallMessage): string => {
@@ -147,6 +161,10 @@ export const summarizeToolCall = (toolCall: ToolCallMessage): string => {
 		return toolCall.crossSectionHidden
 			? 'I hid the +X/+Y cross section.'
 			: 'I showed the full cloud again by restoring the +X/+Y cross section.';
+	}
+
+	if (toolCall.toolName === 'insert_standing_wave_visualization') {
+		return 'I added a standing-wave visualization showing nodes and antinodes.';
 	}
 
 	return `I used the ${toolCall.toolName} tool.`;
@@ -214,7 +232,8 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 				pendingMessage.role !== 'assistant' ||
 				pendingMessage.content.trim() ||
 				(pendingMessage.toolCalls?.length ?? 0) > 0 ||
-				(pendingMessage.buttons?.length ?? 0) > 0
+				(pendingMessage.buttons?.length ?? 0) > 0 ||
+				(pendingMessage.visualizations?.length ?? 0) > 0
 			) {
 				return;
 			}
@@ -300,12 +319,19 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 							controller.abort();
 						} else if (payload.tools) {
 							setToolCalling?.(false);
-							const { toolCallMessages: parsedToolCalls, buttons } = applySimulationToolCalls(
-								payload.tools,
-								simulationValues
-							);
+							const {
+								toolCallMessages: parsedToolCalls,
+								buttons,
+								visualizations
+							} = applySimulationToolCalls(payload.tools);
 							if (pendingMessage && buttons.length) {
 								pendingMessage.buttons = [...(pendingMessage.buttons ?? []), ...buttons];
+							}
+							if (pendingMessage && visualizations.length) {
+								pendingMessage.visualizations = [
+									...(pendingMessage.visualizations ?? []),
+									...visualizations
+								];
 							}
 							for (const toolCall of parsedToolCalls) {
 								synthesizedSummaryFromTools =
@@ -318,7 +344,11 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 								];
 							}
 						} else if (payload.tour) {
-							if (payload.tour.type === 'message' || payload.tour.type === 'advance' || payload.tour.type === 'finish') {
+							if (
+								payload.tour.type === 'message' ||
+								payload.tour.type === 'advance' ||
+								payload.tour.type === 'finish'
+							) {
 								discardEmptyPendingAssistant();
 							}
 							applyGuidedTourEvent(payload.tour);

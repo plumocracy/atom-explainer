@@ -124,6 +124,22 @@ export const touchConversation = async (conversationId: string): Promise<ServerR
 	}
 };
 
+export const markStandingWaveVisualizationExplained = async (
+	conversationId: string
+): Promise<ServerResult<void>> => {
+	try {
+		await db
+			.update(conversations)
+			.set({ standingWaveVisualizationExplained: true })
+			.where(eq(conversations.id, conversationId));
+		return ok(undefined);
+	} catch (error) {
+		return err(
+			appError.internal('Could not update standing-wave explanation state', { cause: error })
+		);
+	}
+};
+
 export const getConversationMessages = async (
 	userId: string,
 	conversationId: string

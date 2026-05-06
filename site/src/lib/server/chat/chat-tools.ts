@@ -54,11 +54,11 @@ export const CHAT_TOOLS: ChatFunctionTool[] = [
 								simulationValues: {
 									type: 'object',
 									properties: {
-									n: { type: 'integer' },
-									l: { type: 'integer' },
-									m: { type: 'integer' }
-								},
-								required: ['n', 'l', 'm']
+										n: { type: 'integer' },
+										l: { type: 'integer' },
+										m: { type: 'integer' }
+									},
+									required: ['n', 'l', 'm']
 								}
 							},
 							required: ['label']
@@ -80,8 +80,7 @@ export const CHAT_TOOLS: ChatFunctionTool[] = [
 				properties: {
 					hidden: {
 						type: 'boolean',
-						description:
-							'True hides the +X/+Y cross section, false shows the full cloud again'
+						description: 'True hides the +X/+Y cross section, false shows the full cloud again'
 					}
 				},
 				required: ['hidden']
@@ -124,6 +123,19 @@ export const CHAT_TOOLS: ChatFunctionTool[] = [
 					}
 				},
 				required: ['toggleType']
+			}
+		}
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'insert_standing_wave_visualization',
+			description:
+				'Insert the standing-wave nodes and antinodes visualization beneath the assistant message in the chat window',
+			parameters: {
+				type: 'object',
+				properties: {},
+				required: []
 			}
 		}
 	},

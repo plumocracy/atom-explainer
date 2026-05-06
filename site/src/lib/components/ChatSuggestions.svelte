@@ -1,7 +1,7 @@
 <script lang="ts">
 	let {
 		suggestions,
-		onSelect,
+		onSelect
 	}: {
 		suggestions: string[];
 		onSelect: (message: string) => void;
@@ -11,9 +11,9 @@
 <div class="flex h-full flex-col justify-center">
 	<div class="my-auto flex flex-col items-center gap-4 px-4 text-center">
 		<p class="museum-kicker">Guided Prompts</p>
-		<h3 class="text-3xl">Start with a curated question</h3>
+		<h3 class="text-3xl">Start with a short lesson</h3>
 		<p class="max-w-xs text-sm text-[var(--museum-subtext)]">
-			Choose a starting point and the assistant will explain the active exhibit state.
+			Choose a lesson and the assistant will walk you through it.
 		</p>
 		{#each suggestions as suggestion}
 			<button

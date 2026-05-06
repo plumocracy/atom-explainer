@@ -7,6 +7,7 @@ import {
 	getConversationHistory,
 	getConversationMessages,
 	getOrCreateConversationWithStatus,
+	markStandingWaveVisualizationExplained,
 	updateConversationTitle,
 	touchConversation
 } from '$lib/server/conversation';
@@ -235,6 +236,18 @@ export const _synthesizeToolOnlyResponse = (toolCalls: StreamedToolCall[]): stri
 	return summaries.join(' ');
 };
 
+export const _usesStandingWaveVisualizationTool = (toolCalls: StreamedToolCall[]): boolean =>
+	toolCalls.some((toolCall) => toolCall.function.name === 'insert_standing_wave_visualization');
+
+export const _hasStandingWaveUiExplanation = (content: string): boolean => {
+	const normalized = content.toLowerCase();
+	return (
+		normalized.includes('hover') &&
+		normalized.includes('probability') &&
+		(normalized.includes('standing wave') || normalized.includes('wave'))
+	);
+};
+
 export const GET: RequestHandler = async ({ locals }) => {
 	try {
 		const chatAccess = await canUserChat(locals.user);
@@ -360,9 +373,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		const activeTourStep = guidedTour
 			? getTourStep(guidedTour.tourId, guidedTour.stepId)
 			: undefined;
-		let preflightJudged:
-			| Awaited<ReturnType<typeof judgeTourStep>>
-			| null = null;
+		let preflightJudged: Awaited<ReturnType<typeof judgeTourStep>> | null = null;
 
 		if (guidedTour?.awaitingConfirmation && activeTourStep) {
 			const stream = new ReadableStream({
@@ -495,7 +506,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			}
 		}
 
-		const systemPrompt = buildSystemPrompt(simulation, guidedTour);
+		const systemPrompt = buildSystemPrompt(
+			simulation,
+			conversation.standingWaveVisualizationExplained,
+			guidedTour
+		);
 
 		const stream = new ReadableStream({
 			async start(controller) {
@@ -614,6 +629,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						throw finalizeResult.error;
 					}
 
+					if (
+						!conversation.standingWaveVisualizationExplained &&
+						_usesStandingWaveVisualizationTool(allToolCalls) &&
+						_hasStandingWaveUiExplanation(assistantResponse)
+					) {
+						const standingWaveResult = await markStandingWaveVisualizationExplained(
+							conversation.id
+						);
+						if (!standingWaveResult.ok) {
+							throw standingWaveResult.error;
+						}
+						conversation.standingWaveVisualizationExplained = true;
+					}
+
 					if (titlePromise) {
 						const titleResult = await titlePromise;
 						if (titleResult.ok) {
@@ -638,11 +667,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 										? {
 												type: 'hold',
 												messageType: preflightJudged.data.messageType
-										  }
+											}
 										: {
 												type: 'stay',
 												messageType: preflightJudged.data.messageType
-										  }
+											}
 							})
 						);
 					}

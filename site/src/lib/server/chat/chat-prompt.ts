@@ -16,7 +16,8 @@ export const buildSimulationContextPrompt = (simulation: ChatSimulationContext):
 		'The user is currently looking at the orbital model view. ' +
 		`Current orbital values: n=${simulation.values.n}, l=${simulation.values.l}, m=${simulation.values.m}. ` +
 		`The +X/+Y cross section is currently ${simulation.values.hidePositiveXYCrossSection ? 'hidden' : 'visible'}. ` +
-		'The orbital is rendered as many small cream-colored shaded spheres rather than a point cloud, so describe it as a dense spherical marker field when referring to the visual appearance. ' +
+		'The orbital is rendered as many small plum-colored shaded spheres rather than a point cloud, so describe it as a dense spherical marker field when referring to the visual appearance. ' +
+		'The product term quantum flow refers to probability current. In this visualization, that flow is shown as electrons rotating around the nucleus, so answer questions about quantum flow in terms of probability current while acknowledging that the on-screen depiction uses orbital rotation as the visual metaphor. ' +
 		'Reason about what the user sees in terms of orbitals, shapes, orientation, and quantum numbers. '
 	);
 };
@@ -44,6 +45,7 @@ export const buildGuidedTourPrompt = (guidedTour?: GuidedTourContext): string =>
 
 export const buildSystemPrompt = (
 	simulation: ChatSimulationContext,
+	standingWaveVisualizationExplained = false,
 	guidedTour?: GuidedTourContext
 ): string =>
 	'You are a physics professor specializing in quantum mechanics as a top U.S. university. ' +
@@ -59,6 +61,11 @@ export const buildSystemPrompt = (
 	'Use create_button when clickable shortcuts would clearly help the user, including to compare differences, illustrate concepts, or teach something related to their question; these buttons may only set orbital simulation values. ' +
 	'Use toggle_positive_xy_cross_section when the user asks to hide or show the +X/+Y cross section in the orbital cloud. ' +
 	'Use create_toggle_button when a persistent synced toggle button would help the user. ' +
+	'Use insert_standing_wave_visualization when a standing-wave diagram would help explain nodes, antinodes, harmonics, or mode patterns. ' +
+	(standingWaveVisualizationExplained
+		? 'If you use insert_standing_wave_visualization again in this conversation, do not repeat the UI explanation about hovering for probability because the user has already been told. '
+		: 'The first time you use insert_standing_wave_visualization in a conversation, tell the user they can hover over the standing wave to see the probability of finding an electron anywhere along the wave. ') +
+	'If the user asks about nodes, emptiness, missing regions, or why an orbital has areas with few or no visible points, use insert_standing_wave_visualization and explain that the standing-wave pattern is analogous to the probability of finding an electron in the orbital, with nodes corresponding to zero-probability regions. ' +
 	'If the user might want a button that swaps between the orbital and Bohr visualizations, always use create_toggle_button with the visualization toggle option rather than creating a one-way view button. ' +
 	'If you call set_simulation_params, you must also explain what changed and why in plain English. ' +
 	'If the user asks to change perspective, zoom, or viewpoint, call move_camera_to_point with explicit x, y, z coordinates and explain the camera move. ' +

@@ -3,6 +3,7 @@ import {
 	parseAtomicNumber,
 	parseCameraTarget,
 	parseSimulationValues,
+	parseVisualizationAttachment,
 	parseVisualizationMode
 } from './+page.server';
 
@@ -17,7 +18,9 @@ describe('page.server parse helpers', () => {
 	});
 
 	test('parseCameraTarget parses xyz and optional duration', () => {
-		expect(parseCameraTarget('move_camera_to_point', { x: 1, y: 2, z: 3, durationMs: 50 }, '')).toEqual({
+		expect(
+			parseCameraTarget('move_camera_to_point', { x: 1, y: 2, z: 3, durationMs: 50 }, '')
+		).toEqual({
 			x: 1,
 			y: 2,
 			z: 3,
@@ -28,5 +31,12 @@ describe('page.server parse helpers', () => {
 	test('parseVisualizationMode and parseAtomicNumber parse valid values', () => {
 		expect(parseVisualizationMode('set_visualization_mode', { mode: 'bohr' }, '')).toBe('bohr');
 		expect(parseAtomicNumber('set_bohr_atomic_number', { atomicNumber: 8 }, '')).toBe(8);
+	});
+
+	test('parseVisualizationAttachment parses standing-wave tool', () => {
+		expect(parseVisualizationAttachment('insert_standing_wave_visualization')).toEqual({
+			type: 'standing_wave'
+		});
+		expect(parseVisualizationAttachment('move_camera_to_point')).toBeUndefined();
 	});
 });

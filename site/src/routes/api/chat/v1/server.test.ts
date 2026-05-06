@@ -3,11 +3,13 @@ import { describe, expect, test, vi } from 'vitest';
 vi.mock('$lib/chat-buttons', () => ({ parseCreateButtons: vi.fn(() => []) }));
 
 import {
+	_hasStandingWaveUiExplanation,
 	_hasUserFacingText,
 	_parseCameraTargetFromToolCall,
 	_parseCrossSectionHiddenFromToolCall,
 	_parseSimulationValuesFromToolCall,
-	_synthesizeToolOnlyResponse
+	_synthesizeToolOnlyResponse,
+	_usesStandingWaveVisualizationTool
 } from './+server';
 
 describe('chat api helpers', () => {
@@ -50,5 +52,23 @@ describe('chat api helpers', () => {
 			}
 		]);
 		expect(msg).toContain('n=2');
+	});
+
+	test('standing-wave helpers detect first-time explanation conditions', () => {
+		expect(
+			_usesStandingWaveVisualizationTool([
+				{
+					index: 0,
+					type: 'function',
+					function: { name: 'insert_standing_wave_visualization', arguments: '{}' }
+				}
+			])
+		).toBe(true);
+		expect(
+			_hasStandingWaveUiExplanation(
+				'Hover over the standing wave to see the probability of finding the electron along the wave.'
+			)
+		).toBe(true);
+		expect(_hasStandingWaveUiExplanation('This is a standing wave.')).toBe(false);
 	});
 });

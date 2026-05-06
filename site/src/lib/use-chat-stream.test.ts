@@ -43,12 +43,15 @@ describe('use-chat-stream helpers', () => {
 		const abort = vi.fn();
 		const onAbort = vi.fn();
 		let handlers: { onMessage: (message: { data: string }) => void } | null = null;
-		listenMock.mockImplementation((nextHandlers: { onMessage: (message: { data: string }) => void }) => {
-			handlers = nextHandlers;
-			return { abort, onAbort };
-		});
+		listenMock.mockImplementation(
+			(nextHandlers: { onMessage: (message: { data: string }) => void }) => {
+				handlers = nextHandlers;
+				return { abort, onAbort };
+			}
+		);
 
-		const messages: Array<{ role: string; content: string; pending?: boolean; live?: boolean }> = [];
+		const messages: Array<{ role: string; content: string; pending?: boolean; live?: boolean }> =
+			[];
 		const stream = useChatStream({
 			chatMessages: messages as never,
 			simulationValues: { n: 1, l: 0, m: 0 },
@@ -89,11 +92,18 @@ describe('use-chat-stream helpers', () => {
 	});
 
 	test('applySimulationToolCalls parses tool payloads', () => {
-		const out = applySimulationToolCalls(
-			[{ function: { name: 'set_simulation_params', arguments: '{"n":2,"l":1,"m":0}' } }],
-			{ n: 1, l: 0, m: 0 }
-		);
+		const out = applySimulationToolCalls([
+			{ function: { name: 'set_simulation_params', arguments: '{"n":2,"l":1,"m":0}' } }
+		]);
 		expect(out.toolCallMessages[0].simulationValues).toEqual({ n: 2, l: 1, m: 0 });
+	});
+
+	test('applySimulationToolCalls captures standing-wave visualizations', () => {
+		const out = applySimulationToolCalls([
+			{ function: { name: 'insert_standing_wave_visualization', arguments: '{}' } }
+		]);
+		expect(out.visualizations).toEqual([{ type: 'standing_wave' }]);
+		expect(out.toolCallMessages[0].toolName).toBe('insert_standing_wave_visualization');
 	});
 
 	test('summarizeToolCall emits user-facing summary', () => {
@@ -101,6 +111,9 @@ describe('use-chat-stream helpers', () => {
 			'n=1'
 		);
 		expect(summarizeToolCall({ toolName: 'x', crossSectionHidden: true })).toContain('hid');
+		expect(summarizeToolCall({ toolName: 'insert_standing_wave_visualization' })).toContain(
+			'standing-wave visualization'
+		);
 	});
 
 	test('useChatStream ignores concurrent send while in flight', () => {

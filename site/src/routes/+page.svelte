@@ -54,6 +54,7 @@
 					toolCall: msg.toolCall,
 					toolCalls: msg.toolCalls,
 					buttons: msg.buttons,
+					visualizations: msg.visualizations,
 					tourState: msg.tourState
 				})
 			);
@@ -123,7 +124,7 @@
 		}
 	};
 
-		onMount(() => {
+	onMount(() => {
 		if (!browser) {
 			return;
 		}
@@ -185,7 +186,7 @@
 							<div class="relative" bind:this={profileMenuRef}>
 								<button
 									type="button"
-									class="block rounded-full transition hover:cursor-pointer focus:outline-none focus:ring-2 focus:ring-[rgba(44,61,75,0.2)]"
+									class="block rounded-full transition hover:cursor-pointer focus:ring-2 focus:ring-[rgba(44,61,75,0.2)] focus:outline-none"
 									onclick={() => (profileMenuOpen = !profileMenuOpen)}
 									aria-haspopup="menu"
 									aria-expanded={profileMenuOpen}
@@ -205,7 +206,7 @@
 
 								{#if profileMenuOpen}
 									<div
-										class="absolute left-1/2 top-[calc(100%+0.5rem)] z-30 min-w-[11rem] -translate-x-1/2 rounded-2xl border border-[var(--museum-stroke)] bg-[rgba(247,241,230,0.98)] p-1.5 shadow-[0_18px_50px_rgba(44,61,75,0.16)]"
+										class="absolute top-[calc(100%+0.5rem)] left-1/2 z-30 min-w-[11rem] -translate-x-1/2 rounded-2xl border border-[var(--museum-stroke)] bg-[rgba(247,241,230,0.98)] p-1.5 shadow-[0_18px_50px_rgba(44,61,75,0.16)]"
 										role="menu"
 									>
 										<button

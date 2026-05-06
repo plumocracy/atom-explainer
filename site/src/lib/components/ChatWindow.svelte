@@ -40,7 +40,7 @@
 	let creatingConversation = $state(false);
 	let messagesViewport = $state<HTMLDivElement | null>(null);
 
-	const messageSuggestions = ['What are your capabilities?', 'What am I looking at?'];
+	const messageSuggestions = ['Bohr Model vs. Orbital Model'];
 	const availableTours = getTourSummary();
 	const primaryTour = availableTours[0];
 	const guidedTourActive = $derived(guidedTourState.status === 'running');
@@ -146,8 +146,7 @@
 			onNewConversation={createNewConversation}
 			newConversationDisabled={loading || creatingConversation}
 		/>
-
-		{#if primaryTour}
+		{#if false}
 			<div class="border-b border-[var(--museum-stroke)] px-4 py-3 md:px-5">
 				<div
 					class="rounded-xl border border-[rgba(44,61,75,0.12)] bg-[rgba(255,255,255,0.4)] px-3 py-3"

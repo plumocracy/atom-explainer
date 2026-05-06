@@ -8,7 +8,11 @@ vi.mock('$lib/tours/tours', () => ({
 	)
 }));
 
-import { buildGuidedTourPrompt, buildSimulationContextPrompt } from './chat-prompt';
+import {
+	buildGuidedTourPrompt,
+	buildSimulationContextPrompt,
+	buildSystemPrompt
+} from './chat-prompt';
 
 describe('chat-prompt helpers', () => {
 	test('buildSimulationContextPrompt for bohr and orbital', () => {
@@ -24,6 +28,12 @@ describe('chat-prompt helpers', () => {
 				values: { n: 2, l: 1, m: 0, hidePositiveXYCrossSection: true }
 			})
 		).toContain('hidden');
+		expect(
+			buildSimulationContextPrompt({
+				mode: 'orbital',
+				values: { n: 2, l: 1, m: 0, hidePositiveXYCrossSection: true }
+			})
+		).toContain('probability current');
 	});
 
 	test('buildGuidedTourPrompt returns empty when no step and populated text when found', () => {
@@ -44,5 +54,17 @@ describe('chat-prompt helpers', () => {
 				awaitingConfirmation: false
 			})
 		).toContain('goal text');
+	});
+
+	test('buildSystemPrompt only includes first-time standing-wave explanation when needed', () => {
+		const simulation = {
+			mode: 'orbital' as const,
+			values: { n: 2, l: 1, m: 0, hidePositiveXYCrossSection: false }
+		};
+
+		expect(buildSystemPrompt(simulation, false)).toContain(
+			'The first time you use insert_standing_wave_visualization'
+		);
+		expect(buildSystemPrompt(simulation, true)).toContain('do not repeat the UI explanation');
 	});
 });

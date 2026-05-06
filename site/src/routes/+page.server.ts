@@ -33,6 +33,9 @@ type UiHistoryMessage = {
 	role: 'user' | 'assistant' | 'tool';
 	content: string;
 	buttons?: ChatButton[];
+	visualizations?: Array<{
+		type: 'standing_wave';
+	}>;
 	toolCalls?: Array<{
 		toolName: string;
 		providerCallId?: string | null;
@@ -78,7 +81,11 @@ type UiHistoryMessage = {
 	};
 };
 
-export const parseSimulationValues = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+export const parseSimulationValues = (
+	toolName: string,
+	argumentsJson: unknown,
+	argumentsRaw: string
+) => {
 	if (toolName !== 'set_simulation_params' && toolName !== 'set_simulation_values') {
 		return undefined;
 	}
@@ -112,7 +119,11 @@ export const parseSimulationValues = (toolName: string, argumentsJson: unknown, 
 	return undefined;
 };
 
-export const parseCameraTarget = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+export const parseCameraTarget = (
+	toolName: string,
+	argumentsJson: unknown,
+	argumentsRaw: string
+) => {
 	if (toolName !== 'move_camera_to_point') {
 		return undefined;
 	}
@@ -173,7 +184,11 @@ const parseCrossSectionHidden = (
 	return typeof values.hidden === 'boolean' ? values.hidden : undefined;
 };
 
-export const parseVisualizationMode = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+export const parseVisualizationMode = (
+	toolName: string,
+	argumentsJson: unknown,
+	argumentsRaw: string
+) => {
 	if (toolName !== 'set_visualization_mode') {
 		return undefined;
 	}
@@ -195,7 +210,11 @@ export const parseVisualizationMode = (toolName: string, argumentsJson: unknown,
 	return values.mode === 'orbital' || values.mode === 'bohr' ? values.mode : undefined;
 };
 
-export const parseAtomicNumber = (toolName: string, argumentsJson: unknown, argumentsRaw: string) => {
+export const parseAtomicNumber = (
+	toolName: string,
+	argumentsJson: unknown,
+	argumentsRaw: string
+) => {
 	if (toolName !== 'set_bohr_atomic_number') {
 		return undefined;
 	}
@@ -215,6 +234,14 @@ export const parseAtomicNumber = (toolName: string, argumentsJson: unknown, argu
 
 	const values = parsed as { atomicNumber?: unknown };
 	return typeof values.atomicNumber === 'number' ? values.atomicNumber : undefined;
+};
+
+export const parseVisualizationAttachment = (toolName: string) => {
+	if (toolName === 'insert_standing_wave_visualization') {
+		return { type: 'standing_wave' as const };
+	}
+
+	return undefined;
 };
 
 export const load: PageServerLoad = async (event) => {
@@ -312,6 +339,10 @@ export const load: PageServerLoad = async (event) => {
 				toolCall.argumentsJson,
 				toolCall.argumentsRaw
 			);
+			const visualization = parseVisualizationAttachment(toolCall.toolName);
+			if (visualization) {
+				uiMessage.visualizations = [...(uiMessage.visualizations ?? []), visualization];
+			}
 			uiMessage.toolCalls = [
 				...(uiMessage.toolCalls ?? []),
 				{

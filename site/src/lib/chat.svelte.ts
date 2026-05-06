@@ -51,6 +51,10 @@ export type ToolCallMessage = {
 	atomicNumber?: number;
 };
 
+export type MessageVisualization = {
+	type: 'standing_wave';
+};
+
 export type Message = {
 	id: number;
 	role: 'user' | 'assistant' | 'tool';
@@ -62,6 +66,7 @@ export type Message = {
 	toolCall?: ToolCallMessage;
 	toolCalls?: ToolCallMessage[];
 	buttons?: ChatButton[];
+	visualizations?: MessageVisualization[];
 	tourState?: {
 		status: 'running' | 'stopped' | 'finished';
 		tourId: string;

@@ -3,6 +3,7 @@ import {
 	uuid,
 	text,
 	integer,
+	boolean,
 	timestamp,
 	index,
 	check,
@@ -23,6 +24,9 @@ export const conversations = pgTable(
 		userInputTokens: integer('user_input_tokens').notNull().default(0),
 		promptTokens: integer('prompt_tokens').notNull().default(0),
 		completionTokens: integer('completion_tokens').notNull().default(0),
+		standingWaveVisualizationExplained: boolean('standing_wave_visualization_explained')
+			.notNull()
+			.default(false),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
