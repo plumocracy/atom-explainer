@@ -25,9 +25,33 @@ export type ConversationSummary = Pick<
 	messageCount: number;
 };
 
+export type ConversationSearchResult = Pick<
+	MessageSelect,
+	'id' | 'conversationId' | 'role' | 'content' | 'createdAt'
+> & {
+	conversationTitle: ConversationSelect['title'];
+};
+
 type GetOrCreateConversationResult = {
 	conversation: ConversationSelect;
 	created: boolean;
+};
+
+export const getConversationForUser = async (
+	userId: string,
+	conversationId: string
+): Promise<ServerResult<ConversationSelect | null>> => {
+	try {
+		const [conversation] = await db
+			.select()
+			.from(conversations)
+			.where(and(eq(conversations.userId, userId), eq(conversations.id, conversationId)))
+			.limit(1);
+
+		return ok(conversation ?? null);
+	} catch (error) {
+		return err(appError.internal('Could not load conversation', { cause: error }));
+	}
 };
 
 export const getActiveConversation = async (
@@ -212,5 +236,46 @@ export const getConversationSummaries = async (
 		);
 	} catch (error) {
 		return err(appError.internal('Could not load conversation summaries', { cause: error }));
+	}
+};
+
+export const searchConversationHistory = async (
+	userId: string,
+	query: string,
+	limit = 20
+): Promise<ServerResult<ConversationSearchResult[]>> => {
+	const trimmedQuery = query.trim();
+	if (!trimmedQuery) {
+		return ok([]);
+	}
+
+	try {
+		const tsQuery = sql`websearch_to_tsquery('english', ${trimmedQuery})`;
+		const results = await db
+			.select({
+				id: messages.id,
+				conversationId: messages.conversationId,
+				role: messages.role,
+				content: messages.content,
+				createdAt: messages.createdAt,
+				conversationTitle: conversations.title
+			})
+			.from(messages)
+			.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+			.where(
+				and(
+					eq(messages.userId, userId),
+					sql`to_tsvector('english', ${messages.content}) @@ ${tsQuery}`
+				)
+			)
+			.orderBy(
+				desc(sql`ts_rank_cd(to_tsvector('english', ${messages.content}), ${tsQuery})`),
+				desc(messages.createdAt)
+			)
+			.limit(limit);
+
+		return ok(results);
+	} catch (error) {
+		return err(appError.internal('Could not search conversation history', { cause: error }));
 	}
 };

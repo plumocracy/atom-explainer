@@ -57,8 +57,10 @@ export type MessageVisualization = {
 
 export type Message = {
 	id: number;
+	serverId?: string;
 	role: 'user' | 'assistant' | 'tool';
 	content: string;
+	feedbackSubmitted?: boolean;
 	pending?: boolean;
 	live?: boolean;
 	autoFinishPending?: boolean;

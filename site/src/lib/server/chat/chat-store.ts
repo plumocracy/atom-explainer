@@ -1,14 +1,23 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db';
-import { conversations, messageToolCalls, messages } from '$lib/server/db/schema';
+import { conversations, messageFeedback, messageToolCalls, messages, user } from '$lib/server/db/schema';
 import { appError } from '$lib/server/errors';
 import { err, ok, type ServerResult } from '$lib/server/result';
-import type { ChatSimulationContext, StreamedToolCall } from './chat-contract';
+import type {
+	ChatSimulationContext,
+	MessageFeedbackRequest,
+	StreamedToolCall
+} from './chat-contract';
 
 type MessageInsert = typeof messages.$inferInsert;
 type MessageModel = MessageInsert['model'];
 type MessageToolCallInsert = typeof messageToolCalls.$inferInsert;
 type MessageToolCallSelect = typeof messageToolCalls.$inferSelect;
+type MessageFeedbackInsert = typeof messageFeedback.$inferInsert;
+
+type UpsertMessageFeedbackInput = MessageFeedbackRequest & {
+	userId: string;
+};
 
 type RecordUserMessageInput = {
 	userId: string;
@@ -78,7 +87,7 @@ export const recordUserMessage = async (
 
 export const finalizeAssistantTurn = async (
 	input: FinalizeAssistantTurnInput
-): Promise<ServerResult<void>> => {
+): Promise<ServerResult<string>> => {
 	try {
 		const [assistantMessage] = await db
 			.insert(messages)
@@ -123,7 +132,7 @@ export const finalizeAssistantTurn = async (
 			})
 			.where(eq(conversations.id, input.conversationId));
 
-		return ok(undefined);
+		return ok(assistantMessage.id);
 	} catch (error) {
 		return err(appError.internal('Could not finalize assistant response', { cause: error }));
 	}
@@ -182,5 +191,154 @@ export const getToolCallsForMessage = async (
 		return ok(toolCalls);
 	} catch (error) {
 		return err(appError.internal('Could not load tool calls for message', { cause: error }));
+	}
+};
+
+export const getFeedbackMessageIdsForUser = async (
+	userId: string,
+	messageIds: string[]
+): Promise<ServerResult<Set<string>>> => {
+	if (!messageIds.length) {
+		return ok(new Set());
+	}
+
+	try {
+		const rows = await db
+			.select({ messageId: messageFeedback.messageId })
+			.from(messageFeedback)
+			.where(and(eq(messageFeedback.userId, userId), inArray(messageFeedback.messageId, messageIds)));
+
+		return ok(new Set(rows.map((row) => row.messageId)));
+	} catch (error) {
+		return err(appError.internal('Could not load message feedback state', { cause: error }));
+	}
+};
+
+export const upsertMessageFeedback = async (
+	input: UpsertMessageFeedbackInput
+): Promise<ServerResult<void>> => {
+	try {
+		const [ownedMessage] = await db
+			.select({ id: messages.id })
+			.from(messages)
+			.where(
+				and(
+					eq(messages.id, input.messageId),
+					eq(messages.userId, input.userId),
+					eq(messages.role, 'assistant')
+				)
+			)
+			.limit(1);
+
+		if (!ownedMessage) {
+			return err(appError.notFound('Assistant message not found'));
+		}
+
+		const values: MessageFeedbackInsert = {
+			messageId: input.messageId,
+			userId: input.userId,
+			preference: input.preference,
+			correctness: input.correctness,
+			tone: input.tone,
+			understandability: input.understandability,
+			explanation: input.explanation ?? null,
+			updatedAt: new Date()
+		};
+
+		await db
+			.insert(messageFeedback)
+			.values(values)
+			.onConflictDoUpdate({
+				target: [messageFeedback.messageId, messageFeedback.userId],
+				set: {
+					preference: values.preference,
+					correctness: values.correctness,
+					tone: values.tone,
+					understandability: values.understandability,
+					explanation: values.explanation,
+					updatedAt: new Date()
+				}
+			});
+
+		return ok(undefined);
+	} catch (error) {
+		return err(appError.internal('Could not save message feedback', { cause: error }));
+	}
+};
+
+export type FeedbackSort = 'newest' | 'highest' | 'lowest';
+
+export type AdminFeedbackEntry = {
+	id: string;
+	messageId: string;
+	preference: 'up' | 'down';
+	correctness: number;
+	tone: number;
+	understandability: number;
+	explanation: string | null;
+	createdAt: Date;
+	messageContent: string;
+	feedbackGiver: {
+		id: string;
+		name: string;
+		email: string;
+	};
+	overallRating: number;
+};
+
+export const getAdminFeedbackEntries = async (
+	sort: FeedbackSort
+): Promise<ServerResult<AdminFeedbackEntry[]>> => {
+	try {
+		const averageRating = sql<number>`(${messageFeedback.correctness} + ${messageFeedback.tone} + ${messageFeedback.understandability})::float / 3`;
+		const orderByClause =
+			sort === 'highest'
+				? desc(averageRating)
+				: sort === 'lowest'
+					? asc(averageRating)
+					: desc(messageFeedback.createdAt);
+
+		const rows = await db
+			.select({
+				id: messageFeedback.id,
+				messageId: messageFeedback.messageId,
+				preference: messageFeedback.preference,
+				correctness: messageFeedback.correctness,
+				tone: messageFeedback.tone,
+				understandability: messageFeedback.understandability,
+				explanation: messageFeedback.explanation,
+				createdAt: messageFeedback.createdAt,
+				messageContent: messages.content,
+				feedbackGiverId: user.id,
+				feedbackGiverName: user.name,
+				feedbackGiverEmail: user.email,
+				overallRating: averageRating
+			})
+			.from(messageFeedback)
+			.innerJoin(messages, eq(messages.id, messageFeedback.messageId))
+			.innerJoin(user, eq(user.id, messageFeedback.userId))
+			.orderBy(orderByClause, desc(messageFeedback.createdAt));
+
+		return ok(
+			rows.map((row) => ({
+				id: row.id,
+				messageId: row.messageId,
+				preference: row.preference,
+				correctness: row.correctness,
+				tone: row.tone,
+				understandability: row.understandability,
+				explanation: row.explanation,
+				createdAt: row.createdAt,
+				messageContent: row.messageContent,
+				feedbackGiver: {
+					id: row.feedbackGiverId,
+					name: row.feedbackGiverName,
+					email: row.feedbackGiverEmail
+				},
+				overallRating: Number(row.overallRating)
+			}))
+		);
+	} catch (error) {
+		return err(appError.internal('Could not load admin feedback entries', { cause: error }));
 	}
 };

@@ -4,6 +4,7 @@ import { canUserChat, requireUser } from '$lib/server/user';
 import { appError, toErrorResponse, toPublicError } from '$lib/server/errors';
 import {
 	getActiveConversation,
+	getConversationForUser,
 	getConversationHistory,
 	getConversationMessages,
 	getOrCreateConversationWithStatus,
@@ -29,6 +30,7 @@ import { generateConversationTitle } from '$lib/server/chat/chat-title';
 import { ToolCallStreamAccumulator } from '$lib/server/chat/chat-tools';
 import {
 	finalizeAssistantTurn,
+	getFeedbackMessageIdsForUser,
 	getToolCallsForMessage,
 	recordAssistantMessage,
 	recordUserMessage
@@ -248,7 +250,7 @@ export const _hasStandingWaveUiExplanation = (content: string): boolean => {
 	);
 };
 
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ locals, url }) => {
 	try {
 		const chatAccess = await canUserChat(locals.user);
 		if (!chatAccess.ok) {
@@ -261,8 +263,11 @@ export const GET: RequestHandler = async ({ locals }) => {
 		}
 
 		const userId = userResult.data.id;
+		const requestedConversationId = url.searchParams.get('conversation');
 
-		const conversationResult = await getActiveConversation(userId);
+		const conversationResult = requestedConversationId
+			? await getConversationForUser(userId, requestedConversationId)
+			: await getActiveConversation(userId);
 		if (!conversationResult.ok) {
 			return toErrorResponse(conversationResult.error, locals.requestId);
 		}
@@ -304,6 +309,14 @@ export const GET: RequestHandler = async ({ locals }) => {
 			})
 		);
 
+		const feedbackIdsResult = await getFeedbackMessageIdsForUser(
+			userId,
+			messagesWithToolCalls.filter((message) => message.role === 'assistant').map((message) => message.id)
+		);
+		if (!feedbackIdsResult.ok) {
+			return toErrorResponse(feedbackIdsResult.error, locals.requestId);
+		}
+
 		const currentTour =
 			[...messagesWithToolCalls].reverse().find((message) => message.tourState)?.tourState ?? null;
 
@@ -311,6 +324,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 			success: true,
 			conversationId,
 			messages: messagesWithToolCalls,
+			feedbackMessageIds: [...feedbackIdsResult.data],
 			currentTour
 		});
 	} catch (error) {
@@ -336,14 +350,30 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 
 		const userId = userResult.data.id;
-		const { message, simulation, guidedTour } = payload.data;
+		const { message, conversationId, surface, simulation, guidedTour } = payload.data;
 		const userInputTokens = estimateUserInputTokens(message);
 
-		const conversationResult = await getOrCreateConversationWithStatus(userId);
-		if (!conversationResult.ok) {
-			throw conversationResult.error;
-		}
-		const { conversation } = conversationResult.data;
+		const conversation = conversationId
+			? await (async () => {
+					const existingConversationResult = await getConversationForUser(userId, conversationId);
+					if (!existingConversationResult.ok) {
+						throw existingConversationResult.error;
+					}
+
+					if (!existingConversationResult.data) {
+						throw appError.badRequest('Conversation could not be found');
+					}
+
+					return existingConversationResult.data;
+				})()
+			: await (async () => {
+					const conversationResult = await getOrCreateConversationWithStatus(userId);
+					if (!conversationResult.ok) {
+						throw conversationResult.error;
+					}
+
+					return conversationResult.data.conversation;
+				})();
 		const titlePromise = conversation.title ? null : generateConversationTitle(message);
 
 		const touchResult = await touchConversation(conversation.id);
@@ -508,6 +538,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		const systemPrompt = buildSystemPrompt(
 			simulation,
+			surface,
 			conversation.standingWaveVisualizationExplained,
 			guidedTour
 		);
@@ -628,6 +659,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					if (!finalizeResult.ok) {
 						throw finalizeResult.error;
 					}
+					const assistantMessageId = finalizeResult.data;
 
 					if (
 						!conversation.standingWaveVisualizationExplained &&
@@ -676,7 +708,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						);
 					}
 
-					controller.enqueue(encodeSse({ done: true }));
+					controller.enqueue(encodeSse({ done: true, assistantMessageId }));
 					controller.close();
 				} catch (error) {
 					const publicError = toPublicError(error, { requestId: locals.requestId });

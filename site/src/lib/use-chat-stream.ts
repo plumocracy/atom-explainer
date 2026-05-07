@@ -33,6 +33,8 @@ type UseChatStreamOptions = {
 	visualizationState: { mode: VisualizationMode };
 	setLoading: (next: boolean) => void;
 	setToolCalling?: (next: boolean) => void;
+	getExtraBody?: () => Record<string, unknown>;
+	onFirstServerEvent?: () => void;
 };
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -177,11 +179,13 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		bohrSimulationValues,
 		visualizationState,
 		setLoading,
-		setToolCalling
+		setToolCalling,
+		getExtraBody,
+		onFirstServerEvent
 	} = options;
 	let inFlight = false;
 
-	const sendMessage = (message: string): void => {
+	const startMessageStream = (message: string, useSeededPending = false): void => {
 		if (inFlight) {
 			return;
 		}
@@ -190,24 +194,30 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		setLoading(true);
 		setToolCalling?.(false);
 
-		chatMessages.push(
-			createChatMessage({
-				role: 'user',
-				content: message,
-				live: false
-			})
-		);
+		let botMessageIdx = -1;
 
-		chatMessages.push(
-			createChatMessage({
-				role: 'assistant',
-				content: '',
-				pending: true,
-				live: true
-			})
-		);
+		if (useSeededPending) {
+			botMessageIdx = chatMessages.length - 1;
+		} else {
+			chatMessages.push(
+				createChatMessage({
+					role: 'user',
+					content: message,
+					live: false
+				})
+			);
 
-		let botMessageIdx = chatMessages.length - 1;
+			chatMessages.push(
+				createChatMessage({
+					role: 'assistant',
+					content: '',
+					pending: true,
+					live: true
+				})
+			);
+
+			botMessageIdx = chatMessages.length - 1;
+		}
 
 		const failPendingMessage = (reason: unknown, fallback: string) => {
 			const pendingMessage = chatMessages[botMessageIdx];
@@ -265,6 +275,7 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					message,
+					...(getExtraBody?.() ?? {}),
 					simulation,
 					guidedTour:
 						guidedTourState.status === 'running' &&
@@ -283,6 +294,7 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 
 			let streamFailed = false;
 			let synthesizedSummaryFromTools = '';
+			let firstServerEventSeen = false;
 			const failOnce = (reason: unknown, fallback: string) => {
 				if (streamFailed) {
 					return;
@@ -295,6 +307,10 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 			const controller = eventSource.listen({
 				onMessage(streamMessage) {
 					try {
+						if (!firstServerEventSeen) {
+							firstServerEventSeen = true;
+							onFirstServerEvent?.();
+						}
 						const payload = JSON.parse(streamMessage.data);
 						const pendingMessage = botMessageIdx >= 0 ? chatMessages[botMessageIdx] : null;
 
@@ -311,6 +327,9 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 								pendingMessage.content = synthesizedSummaryFromTools;
 							}
 							if (pendingMessage) {
+								if (typeof payload.assistantMessageId === 'string') {
+									pendingMessage.serverId = payload.assistantMessageId;
+								}
 								pendingMessage.pending = false;
 							}
 							inFlight = false;
@@ -384,5 +403,13 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		}
 	};
 
-	return { sendMessage };
+	const sendMessage = (message: string): void => {
+		startMessageStream(message, false);
+	};
+
+	const sendSeededMessage = (message: string): void => {
+		startMessageStream(message, true);
+	};
+
+	return { sendMessage, sendSeededMessage };
 };

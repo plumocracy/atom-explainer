@@ -1,21 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { auth } from '$lib/server/auth';
-import { APIError } from 'better-auth/api';
 import { appError, normalizeError, toPublicError } from '$lib/server/errors';
-
-export const toAuthFailure = (error: unknown, requestId: string) => {
-	if (error instanceof APIError) {
-		const normalized = normalizeError(
-			appError.badRequest(error.message || 'Authentication request failed'),
-			{ requestId }
-		);
-		return fail(normalized.status, { error: toPublicError(normalized) });
-	}
-
-	const normalized = normalizeError(error, { requestId });
-	return fail(normalized.status, { error: toPublicError(normalized) });
-};
+import { toAuthFailure } from '../login-page.server.helpers';
 
 export const load: PageServerLoad = (event) => {
 	if (event.locals.user) {

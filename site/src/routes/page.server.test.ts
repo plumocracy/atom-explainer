@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import {
+	isMobileRequest,
 	parseAtomicNumber,
 	parseCameraTarget,
 	parseSimulationValues,
 	parseVisualizationAttachment,
 	parseVisualizationMode
-} from './+page.server';
+} from './page.server.helpers';
 
 describe('page.server parse helpers', () => {
 	test('parseSimulationValues parses known tool payload', () => {
@@ -38,5 +39,24 @@ describe('page.server parse helpers', () => {
 			type: 'standing_wave'
 		});
 		expect(parseVisualizationAttachment('move_camera_to_point')).toBeUndefined();
+	});
+
+	test('isMobileRequest detects mobile user agents and client hints', () => {
+		expect(
+			isMobileRequest(
+				new Headers({
+					'user-agent':
+						'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
+				})
+			)
+		).toBe(true);
+		expect(isMobileRequest(new Headers({ 'sec-ch-ua-mobile': '?1' }))).toBe(true);
+		expect(
+			isMobileRequest(
+				new Headers({
+					'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36'
+				})
+			)
+		).toBe(false);
 	});
 });

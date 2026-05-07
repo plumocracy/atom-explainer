@@ -2,11 +2,18 @@
 	import { applyChatButton, getChatButtonLabel } from '$lib/chat.svelte';
 	import type { Message } from '$lib/chat.svelte';
 	import { renderMarkdown } from '$lib/render_markdown';
+	import Icon from '@iconify/svelte';
 	import { fade } from 'svelte/transition';
 	import StandingWaveCanvas from './StandingWaveCanvas.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 
-	let { message }: { message: Message } = $props();
+	let {
+		message,
+		onOpenFeedback
+	}: {
+		message: Message;
+		onOpenFeedback?: (message: Message, preference: 'up' | 'down') => void;
+	} = $props();
 
 	let displayed = $state('');
 	let queue = '';
@@ -52,11 +59,14 @@
 </script>
 
 <div class="flex w-full" in:fade>
-	<article
-		class="rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm {message.role === 'user'
-			? 'ml-auto max-w-[82%] border-[rgba(39,80,86,0.36)] bg-[rgba(39,80,86,0.14)] text-[var(--museum-text)]'
-			: 'max-w-[92%] border-[var(--museum-stroke)] bg-[rgba(255,255,255,0.62)] text-[var(--museum-text)]'}"
+	<div
+		class="{message.role === 'user' ? 'ml-auto max-w-[82%]' : 'max-w-[92%]'} flex flex-col"
 	>
+		<article
+			class="rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm {message.role === 'user'
+				? 'border-[rgba(39,80,86,0.36)] bg-[rgba(39,80,86,0.14)] text-[var(--museum-text)]'
+				: 'border-[var(--museum-stroke)] bg-[rgba(255,255,255,0.62)] text-[var(--museum-text)]'}"
+		>
 		{#if message.role === 'assistant'}
 			<div class="markdown-body">
 				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -104,7 +114,32 @@
 		{#if message.role === 'assistant' && message.toolCalls?.length}
 			<ToolCallCard toolCalls={message.toolCalls} />
 		{/if}
-	</article>
+		</article>
+		{#if message.role === 'assistant' && !message.pending && message.serverId}
+			<div class="mt-0 flex items-center justify-start gap-2 px-1 text-xs text-[var(--museum-subtext)]">
+				{#if message.feedbackSubmitted}
+					<p>Thanks for your feedback.</p>
+				{:else}
+					<button
+						type="button"
+						class="feedback-button"
+						aria-label="Rate this response helpful"
+						onclick={() => onOpenFeedback?.(message, 'up')}
+					>
+						<Icon icon="lucide:thumbs-up" width="16" height="16" aria-hidden="true" />
+					</button>
+					<button
+						type="button"
+						class="feedback-button"
+						aria-label="Rate this response needs work"
+						onclick={() => onOpenFeedback?.(message, 'down')}
+					>
+						<Icon icon="lucide:thumbs-down" width="16" height="16" aria-hidden="true" />
+					</button>
+				{/if}
+			</div>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -159,6 +194,18 @@
 		font-size: 0.92em;
 	}
 
+	.markdown-body :global(.inline-math-chip) {
+		display: inline-block;
+		border-radius: 0.3rem;
+		background: rgba(44, 61, 75, 0.08);
+		padding: 0.08rem 0.35rem;
+		vertical-align: baseline;
+	}
+
+	.markdown-body :global(.inline-math-chip .katex) {
+		font-size: 0.92em;
+	}
+
 	.markdown-body :global(pre) {
 		overflow-x: auto;
 		border-radius: 0.75rem;
@@ -171,8 +218,61 @@
 		padding: 0;
 	}
 
+	.markdown-body :global(.katex-display) {
+		overflow-x: auto;
+		overflow-y: hidden;
+		margin: 0.85rem 0;
+	}
+
+	.markdown-body :global(.math-block-eqno) {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+	}
+
+	.markdown-body :global(.math-block-eqno .katex-display) {
+		flex: 1;
+		margin: 0.85rem 0;
+	}
+
+	.markdown-body :global(.math-eqno) {
+		padding-top: 0.95rem;
+		font-variant-numeric: tabular-nums;
+		font-size: 0.92em;
+		opacity: 0.78;
+	}
+
+	.markdown-body :global(.katex) {
+		max-width: 100%;
+	}
+
 	.markdown-body :global(a) {
 		text-decoration: underline;
+	}
+
+	.feedback-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 9999px;
+		border: 0;
+		background: transparent;
+		padding: 0;
+		font-size: 0.95rem;
+		color: var(--museum-text);
+		opacity: 0.72;
+		transition:
+			background-color 120ms ease,
+			opacity 120ms ease,
+			transform 120ms ease;
+	}
+
+	.feedback-button:hover {
+		cursor: pointer;
+		opacity: 1;
+		transform: translateY(-1px);
 	}
 
 	@keyframes blink {

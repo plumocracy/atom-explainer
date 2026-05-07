@@ -33,7 +33,7 @@
 @layer base {
 	body {
 		font-family: 'Plus Jakarta Sans', sans-serif;
-		background: var(--museum-bg);
+		background: #0f161e;
 		color: var(--museum-text);
 	}
 
@@ -53,6 +53,7 @@
 		position: relative;
 		min-height: 100dvh;
 		padding: 0;
+		background: #0f161e;
 	}
 
 	.museum-frame {
@@ -128,7 +129,9 @@
 		background: linear-gradient(180deg, #d9af72, #b88a47);
 		margin-top: -4px;
 		cursor: pointer;
-		transition: transform 0.1s ease, box-shadow 0.1s ease;
+		transition:
+			transform 0.1s ease,
+			box-shadow 0.1s ease;
 	}
 
 	input[type='range']::-webkit-slider-thumb:hover {
@@ -149,7 +152,9 @@
 		border-radius: 9999px;
 		background: linear-gradient(180deg, #d9af72, #b88a47);
 		cursor: pointer;
-		transition: transform 0.1s ease, box-shadow 0.1s ease;
+		transition:
+			transform 0.1s ease,
+			box-shadow 0.1s ease;
 	}
 
 	input[type='range']::-moz-range-thumb:hover {
@@ -168,5 +173,4 @@
 			margin-top: -4px;
 		}
 	}
-
 }

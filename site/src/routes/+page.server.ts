@@ -4,13 +4,24 @@ import { appError, throwKitError } from '$lib/server/errors';
 import type { ChatButton } from '$lib/chat-buttons';
 import { parseCreateButtons } from '$lib/chat-buttons';
 import type { PersistedTourState } from '$lib/tours/tour-persistence';
+import {
+	isMobileRequest,
+	parseAtomicNumber,
+	parseCameraTarget,
+	parseCrossSectionHidden,
+	parseSimulationValues,
+	parseVisualizationAttachment,
+	parseVisualizationMode
+} from './page.server.helpers';
 
 type ChatHistoryApiResponse = {
 	success: boolean;
+	conversationId?: string;
 	messages?: Array<{
 		id: string;
 		role: 'user' | 'assistant';
 		content: string;
+		feedbackSubmitted?: boolean;
 		tourState?: PersistedTourState | null;
 		toolCalls?: Array<{
 			id: string;
@@ -24,14 +35,17 @@ type ChatHistoryApiResponse = {
 		}>;
 	}>;
 	currentTour?: PersistedTourState | null;
+	feedbackMessageIds?: string[];
 	error?: {
 		message?: string;
 	};
 };
 
 type UiHistoryMessage = {
+	id?: string;
 	role: 'user' | 'assistant' | 'tool';
 	content: string;
+	feedbackSubmitted?: boolean;
 	buttons?: ChatButton[];
 	visualizations?: Array<{
 		type: 'standing_wave';
@@ -81,183 +95,30 @@ type UiHistoryMessage = {
 	};
 };
 
-export const parseSimulationValues = (
-	toolName: string,
-	argumentsJson: unknown,
-	argumentsRaw: string
-) => {
-	if (toolName !== 'set_simulation_params' && toolName !== 'set_simulation_values') {
-		return undefined;
-	}
-
-	let parsed = argumentsJson;
-	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
-		try {
-			parsed = JSON.parse(argumentsRaw);
-		} catch {
-			parsed = null;
-		}
-	}
-
-	if (typeof parsed !== 'object' || parsed === null) {
-		return undefined;
-	}
-
-	const values = parsed as { n?: unknown; l?: unknown; m?: unknown };
-	if (
-		typeof values.n === 'number' &&
-		typeof values.l === 'number' &&
-		typeof values.m === 'number'
-	) {
-		return {
-			n: values.n,
-			l: values.l,
-			m: values.m
-		};
-	}
-
-	return undefined;
-};
-
-export const parseCameraTarget = (
-	toolName: string,
-	argumentsJson: unknown,
-	argumentsRaw: string
-) => {
-	if (toolName !== 'move_camera_to_point') {
-		return undefined;
-	}
-
-	let parsed = argumentsJson;
-	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
-		try {
-			parsed = JSON.parse(argumentsRaw);
-		} catch {
-			parsed = null;
-		}
-	}
-
-	if (typeof parsed !== 'object' || parsed === null) {
-		return undefined;
-	}
-
-	const values = parsed as { x?: unknown; y?: unknown; z?: unknown; durationMs?: unknown };
-	if (
-		typeof values.x === 'number' &&
-		typeof values.y === 'number' &&
-		typeof values.z === 'number'
-	) {
-		return {
-			x: values.x,
-			y: values.y,
-			z: values.z,
-			durationMs: typeof values.durationMs === 'number' ? values.durationMs : undefined
-		};
-	}
-
-	return undefined;
-};
-
-const parseCrossSectionHidden = (
-	toolName: string,
-	argumentsJson: unknown,
-	argumentsRaw: string
-) => {
-	if (toolName !== 'toggle_positive_xy_cross_section') {
-		return undefined;
-	}
-
-	let parsed = argumentsJson;
-	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
-		try {
-			parsed = JSON.parse(argumentsRaw);
-		} catch {
-			parsed = null;
-		}
-	}
-
-	if (typeof parsed !== 'object' || parsed === null) {
-		return undefined;
-	}
-
-	const values = parsed as { hidden?: unknown };
-	return typeof values.hidden === 'boolean' ? values.hidden : undefined;
-};
-
-export const parseVisualizationMode = (
-	toolName: string,
-	argumentsJson: unknown,
-	argumentsRaw: string
-) => {
-	if (toolName !== 'set_visualization_mode') {
-		return undefined;
-	}
-
-	let parsed = argumentsJson;
-	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
-		try {
-			parsed = JSON.parse(argumentsRaw);
-		} catch {
-			parsed = null;
-		}
-	}
-
-	if (typeof parsed !== 'object' || parsed === null) {
-		return undefined;
-	}
-
-	const values = parsed as { mode?: unknown };
-	return values.mode === 'orbital' || values.mode === 'bohr' ? values.mode : undefined;
-};
-
-export const parseAtomicNumber = (
-	toolName: string,
-	argumentsJson: unknown,
-	argumentsRaw: string
-) => {
-	if (toolName !== 'set_bohr_atomic_number') {
-		return undefined;
-	}
-
-	let parsed = argumentsJson;
-	if ((typeof parsed !== 'object' || parsed === null) && argumentsRaw) {
-		try {
-			parsed = JSON.parse(argumentsRaw);
-		} catch {
-			parsed = null;
-		}
-	}
-
-	if (typeof parsed !== 'object' || parsed === null) {
-		return undefined;
-	}
-
-	const values = parsed as { atomicNumber?: unknown };
-	return typeof values.atomicNumber === 'number' ? values.atomicNumber : undefined;
-};
-
-export const parseVisualizationAttachment = (toolName: string) => {
-	if (toolName === 'insert_standing_wave_visualization') {
-		return { type: 'standing_wave' as const };
-	}
-
-	return undefined;
-};
-
 export const load: PageServerLoad = async (event) => {
 	const { locals } = event;
 	const { user } = locals;
 	const chatEnabled = env.FLAG_CHAT_ENABLED == 'TRUE';
+	const mobileDevice = isMobileRequest(event.request.headers);
+	const selectedConversationId = event.url.searchParams.get('conversation')?.trim() || null;
+	const openChat = event.url.searchParams.get('openChat') === '1';
 
 	if (!user) {
-		return { user: null, chatEnabled, messages: [] };
+		return { user: null, chatEnabled, mobileDevice, messages: [], openChat: false, conversationId: null };
+	}
+
+	if (mobileDevice) {
+		return { user, chatEnabled, mobileDevice, messages: [], openChat: false, conversationId: null };
 	}
 
 	if (!chatEnabled) {
-		return { user, chatEnabled, messages: [] };
+		return { user, chatEnabled, mobileDevice, messages: [], openChat: false, conversationId: null };
 	}
 
-	const historyResponse = await event.fetch('/api/chat/v1');
+	const historyPath = selectedConversationId
+		? `/api/chat/v1?conversation=${encodeURIComponent(selectedConversationId)}`
+		: '/api/chat/v1';
+	const historyResponse = await event.fetch(historyPath);
 	const payload = (await historyResponse.json().catch(() => null)) as ChatHistoryApiResponse | null;
 
 	if (!historyResponse.ok) {
@@ -274,10 +135,12 @@ export const load: PageServerLoad = async (event) => {
 
 	const safePayload = payload as {
 		success: true;
+		conversationId?: string;
 		messages: Array<{
 			id: string;
 			role: 'user' | 'assistant';
 			content: string;
+			feedbackSubmitted?: boolean;
 			tourState?: PersistedTourState | null;
 			toolCalls?: Array<{
 				id: string;
@@ -290,15 +153,19 @@ export const load: PageServerLoad = async (event) => {
 				createdAt: string;
 			}>;
 		}>;
+		feedbackMessageIds?: string[];
 		currentTour?: PersistedTourState | null;
 	};
 	const historyMessages = safePayload.messages;
+	const feedbackMessageIds = new Set(safePayload.feedbackMessageIds ?? []);
 	const messagesWithTools: UiHistoryMessage[] = [];
 
 	for (const message of historyMessages) {
 		const uiMessage: UiHistoryMessage = {
+			id: message.id,
 			role: message.role,
 			content: message.content,
+			feedbackSubmitted: feedbackMessageIds.has(message.id),
 			tourState: message.tourState ?? null
 		};
 		messagesWithTools.push(uiMessage);
@@ -364,7 +231,10 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		user,
 		chatEnabled,
+		mobileDevice,
 		messages: messagesWithTools,
-		currentTour: safePayload.currentTour ?? null
+		currentTour: safePayload.currentTour ?? null,
+		openChat,
+		conversationId: safePayload.conversationId ?? selectedConversationId
 	};
 };

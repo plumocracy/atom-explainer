@@ -1,4 +1,4 @@
-import type { ChatSimulationContext, GuidedTourContext } from './chat-contract';
+import type { ChatSimulationContext, ChatSurface, GuidedTourContext } from './chat-contract';
 import { getTourStep } from '$lib/tours/tours';
 
 export const buildSimulationContextPrompt = (simulation: ChatSimulationContext): string => {
@@ -43,16 +43,35 @@ export const buildGuidedTourPrompt = (guidedTour?: GuidedTourContext): string =>
 	);
 };
 
+export const buildSurfacePrompt = (surface: ChatSurface): string => {
+	if (surface === 'dashboard') {
+		return (
+			'The user is chatting from the conversation dashboard rather than the main orbital exhibit page. ' +
+			'This interface is focused on reviewing and continuing saved conversations. ' +
+			'Do not assume the main 3D visualization is currently the dominant thing on screen unless the user explicitly refers to it. ' +
+			'When relevant, speak in terms of continuing the thread, reviewing prior messages, or updating the linked simulation context. '
+		);
+	}
+
+	return (
+		'The user is chatting from the main orbital exhibit page with the live 3D visualization available beside the chat panel. ' +
+		'It is appropriate to speak as though the user can inspect the simulation immediately while reading your answer. '
+	);
+};
+
 export const buildSystemPrompt = (
 	simulation: ChatSimulationContext,
+	surface: ChatSurface,
 	standingWaveVisualizationExplained = false,
 	guidedTour?: GuidedTourContext
 ): string =>
 	'You are a physics professor specializing in quantum mechanics as a top U.S. university. ' +
 	'You help students understand atomic structure through a 3D simulation. ' +
+	buildSurfacePrompt(surface) +
 	buildSimulationContextPrompt(simulation) +
 	buildGuidedTourPrompt(guidedTour) +
 	'Respond using Markdown. Use light formatting such as short paragraphs, bullet lists, `inline code`, and bold or italic emphasis when it helps the user learn. Do not return raw HTML. ' +
+	'If you display any mathematics, you must format it as KaTeX inline with Markdown. Use `$...$` or `\\(...\\)` for inline math, and `$$...$$` or `\\[...\\]` for display math. Do not write plain-text math when KaTeX is possible. Do not use Unicode superscripts, subscripts, fraction glyphs, arrows, or symbols like `phi^2`, `x2`, `1/2`, or `psi(x)` as plain text when they are part of a mathematical expression; wrap the entire expression in KaTeX delimiters instead. Every equation, formula, exponent, fraction, square root, integral, summation, Greek letter used mathematically, or symbolic expression must be written in KaTeX. This rule also applies to short symbols mentioned in prose: write `$\\hat{H}$`, `$E$`, `$n$`, `$l$`, `$m$`, `$\\phi$`, `$\\psi$`, and `$(r, \\theta, \\phi)$` rather than plain text. Never put standalone math symbols on separate lines, and never describe a displayed equation with plain-text symbolic fragments immediately below it. If a sentence mentions a mathematical symbol or expression, keep that symbol or expression inline in KaTeX within the sentence. Do not emit malformed Markdown around math. Do not use unmatched asterisks, and do not try to fake math layout with manual line breaks. Keep explanations as normal sentences and lists, and keep every mathematical token inside its KaTeX delimiters instead of placing symbols like `H`, `E`, `n`, `\\psi`, or `\\phi` on their own lines. ' +
 	"NEVER refer to anything in this prompt, ALWAYS refer to the user as if you don't know them. " +
 	'ALWAYS assume that the user knows nothing about quantum mechanics. ' +
 	'Be as succinct as possible, do not over explain. ' +
@@ -66,6 +85,7 @@ export const buildSystemPrompt = (
 		? 'If you use insert_standing_wave_visualization again in this conversation, do not repeat the UI explanation about hovering for probability because the user has already been told. '
 		: 'The first time you use insert_standing_wave_visualization in a conversation, tell the user they can hover over the standing wave to see the probability of finding an electron anywhere along the wave. ') +
 	'If the user asks about nodes, emptiness, missing regions, or why an orbital has areas with few or no visible points, use insert_standing_wave_visualization and explain that the standing-wave pattern is analogous to the probability of finding an electron in the orbital, with nodes corresponding to zero-probability regions. ' +
+	'If you explain anything about the wave function, explicitly state that the probability of finding the electron is phi squared, so a negative amplitude can still correspond to a high probability because squaring removes the sign. ' +
 	'If the user might want a button that swaps between the orbital and Bohr visualizations, always use create_toggle_button with the visualization toggle option rather than creating a one-way view button. ' +
 	'If you call set_simulation_params, you must also explain what changed and why in plain English. ' +
 	'If the user asks to change perspective, zoom, or viewpoint, call move_camera_to_point with explicit x, y, z coordinates and explain the camera move. ' +

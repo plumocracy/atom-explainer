@@ -3,9 +3,22 @@ import { redirect } from '@sveltejs/kit';
 import { throwKitError } from '$lib/server/errors';
 import {
 	createConversation,
+	type ConversationHistoryMessage,
+	type ConversationSummary,
 	getConversationHistory,
 	getConversationSummaries
 } from '$lib/server/conversation';
+import type { ServerResult } from '$lib/server/result';
+import { isAdminUser } from '$lib/server/user';
+
+const unwrapOrThrow = <T>(result: ServerResult<T>, requestId?: string): T => {
+	if (result.ok) {
+		return result.data;
+	}
+
+	throwKitError(result.error, requestId);
+	throw new Error('Unreachable');
+};
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	if (!locals.user) {
@@ -13,35 +26,28 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	}
 
 	const conversationsResult = await getConversationSummaries(locals.user.id);
-	if (!conversationsResult.ok) {
-		throwKitError(conversationsResult.error, locals.requestId);
-	}
-
-	const conversations = conversationsResult.data;
+	const conversations: ConversationSummary[] = unwrapOrThrow(conversationsResult, locals.requestId);
 	const requestedConversationId = url.searchParams.get('conversation');
 	const selectedConversation =
-		conversations.find((conversation) => conversation.id === requestedConversationId) ??
+		conversations.find((conversation: ConversationSummary) => conversation.id === requestedConversationId) ??
 		conversations[0] ??
 		null;
 
-	let history: Awaited<ReturnType<typeof getConversationHistory>> extends {
-		ok: true;
-		data: infer Data;
-	}
-		? Data
-		: never = [];
+	let history: ConversationHistoryMessage[] = [];
 
 	if (selectedConversation) {
 		const historyResult = await getConversationHistory(locals.user.id, selectedConversation.id);
-		if (!historyResult.ok) {
-			throwKitError(historyResult.error, locals.requestId);
-		}
-
-		history = historyResult.data;
+		history = unwrapOrThrow(historyResult, locals.requestId);
 	}
 
+	const adminResult = await isAdminUser(locals.user.id);
+	const isAdmin = unwrapOrThrow(adminResult, locals.requestId);
+
 	const tokenUsage = conversations.reduce(
-		(totals, conversation) => {
+		(
+			totals: { inputTokens: number; outputTokens: number },
+			conversation: ConversationSummary
+		) => {
 			totals.inputTokens += conversation.userInputTokens;
 			totals.outputTokens += conversation.completionTokens;
 			return totals;
@@ -51,6 +57,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	return {
 		user: locals.user,
+		isAdmin,
 		conversations,
 		selectedConversationId: selectedConversation?.id ?? null,
 		history,
@@ -65,10 +72,8 @@ export const actions: Actions = {
 		}
 
 		const createdConversation = await createConversation(locals.user.id);
-		if (!createdConversation.ok) {
-			throwKitError(createdConversation.error, locals.requestId);
-		}
+		const conversation = unwrapOrThrow(createdConversation, locals.requestId);
 
-		throw redirect(303, `/dashboard?conversation=${createdConversation.data.id}`);
+		throw redirect(303, `/dashboard?conversation=${conversation.id}`);
 	}
 };

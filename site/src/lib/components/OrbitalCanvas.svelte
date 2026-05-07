@@ -1755,7 +1755,8 @@ void main() {
 			gl.useProgram(lineProgram);
 			gl.uniformMatrix4fv(lUView, false, view);
 
-			gl.clearColor(0.058, 0.086, 0.118, 1.0);
+			//gl.clearColor(0.058, 0.086, 0.118, 1.0);
+			gl.clearColor(0.05, 0.05, 0.07, 1.0);
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
 			if (axisMesh) {

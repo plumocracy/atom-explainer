@@ -97,6 +97,41 @@ export const messageToolCalls = pgTable(
 	]
 );
 
+export const messageFeedback = pgTable(
+	'message_feedback',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		messageId: uuid('message_id')
+			.notNull()
+			.references(() => messages.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		preference: text('preference', { enum: ['up', 'down'] }).notNull(),
+		correctness: integer('correctness').notNull(),
+		tone: integer('tone').notNull(),
+		understandability: integer('understandability').notNull(),
+		explanation: text('explanation'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(table) => [
+		index('message_feedback_message_id_idx').on(table.messageId),
+		index('message_feedback_user_id_idx').on(table.userId),
+		uniqueIndex('message_feedback_message_id_user_id_uq').on(table.messageId, table.userId),
+		check('message_feedback_preference_check', sql`${table.preference} IN ('up', 'down')`),
+		check(
+			'message_feedback_correctness_range_check',
+			sql`${table.correctness} BETWEEN 1 AND 5`
+		),
+		check('message_feedback_tone_range_check', sql`${table.tone} BETWEEN 1 AND 5`),
+		check(
+			'message_feedback_understandability_range_check',
+			sql`${table.understandability} BETWEEN 1 AND 5`
+		)
+	]
+);
+
 // Inferred types
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
@@ -104,3 +139,5 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type MessageToolCall = typeof messageToolCalls.$inferSelect;
 export type NewMessageToolCall = typeof messageToolCalls.$inferInsert;
+export type MessageFeedback = typeof messageFeedback.$inferSelect;
+export type NewMessageFeedback = typeof messageFeedback.$inferInsert;

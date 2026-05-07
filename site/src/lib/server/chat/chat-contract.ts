@@ -32,17 +32,32 @@ export const GuidedTourContextSchema = z.object({
 	awaitingConfirmation: z.boolean().default(false)
 });
 
+export const ChatSurfaceSchema = z.enum(['orbital_page', 'dashboard']);
+
 export const ChatRequestSchema = z.object({
 	message: z.string().trim().min(1),
+	conversationId: z.string().uuid().optional(),
+	surface: ChatSurfaceSchema.default('orbital_page'),
 	simulation: ChatSimulationContextSchema,
 	guidedTour: GuidedTourContextSchema.optional()
 });
 
+export const MessageFeedbackRequestSchema = z.object({
+	messageId: z.string().uuid(),
+	preference: z.enum(['up', 'down']),
+	correctness: z.number().int().min(1).max(5),
+	tone: z.number().int().min(1).max(5),
+	understandability: z.number().int().min(1).max(5),
+	explanation: z.string().trim().max(4000).optional().transform((value) => value || undefined)
+});
+
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
+export type MessageFeedbackRequest = z.infer<typeof MessageFeedbackRequestSchema>;
 export type OrbitalSimulationValues = z.infer<typeof OrbitalSimulationValuesSchema>;
 export type BohrSimulationValues = z.infer<typeof BohrSimulationValuesSchema>;
 export type ChatSimulationContext = z.infer<typeof ChatSimulationContextSchema>;
 export type GuidedTourContext = z.infer<typeof GuidedTourContextSchema>;
+export type ChatSurface = z.infer<typeof ChatSurfaceSchema>;
 
 export type TourSsePayload =
 	| {
@@ -84,7 +99,7 @@ export type ChatSsePayload =
 	| { tools: StreamedToolCall[] }
 	| { tour: TourSsePayload }
 	| { error: PublicAppError }
-	| { done: true };
+	| { done: true; assistantMessageId?: string };
 
 export const CHAT_STREAM_HEADERS: Record<string, string> = {
 	'Content-Type': 'text/event-stream',

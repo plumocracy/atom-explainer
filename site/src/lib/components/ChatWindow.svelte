@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { fade } from 'svelte/transition';
+	import Icon from '@iconify/svelte';
 	import {
 		bohrSimulationValues,
 		chatMessages,
+		type Message,
 		simulationValues,
 		visualizationState
 	} from '$lib/chat.svelte';
@@ -13,9 +16,10 @@
 	import ChatSignInPrompt from './ChatSignInPrompt.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 	import { useChatStream } from '$lib/use-chat-stream';
+	import { chatHandoffState, chatUiState } from '$lib/chat-ui-state.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { showErrorToast } from '$lib/toast.svelte';
+	import { showErrorToast, showToast } from '$lib/toast.svelte';
 	import { getTourSummary } from '$lib/tours/tours';
 	import { guidedTourState } from '$lib/tours/tour-state.svelte';
 	import { clearGuidedTour, startGuidedTour, stopGuidedTour } from '$lib/tours/tour-runner';
@@ -34,28 +38,39 @@
 	} = $props();
 
 	let input = $state('');
-	let loading = $state(false);
-	let toolCalling = $state(false);
 	let messageSent = $state(false);
 	let creatingConversation = $state(false);
 	let messagesViewport = $state<HTMLDivElement | null>(null);
+	let feedbackTarget = $state<Message | null>(null);
+	let feedbackPreference = $state<'up' | 'down'>('up');
+	let feedbackCorrectness = $state(5);
+	let feedbackTone = $state(5);
+	let feedbackUnderstandability = $state(5);
+	let feedbackExplanation = $state('');
+	let submittingFeedback = $state(false);
 
 	const messageSuggestions = ['Bohr Model vs. Orbital Model'];
 	const availableTours = getTourSummary();
 	const primaryTour = availableTours[0];
 	const guidedTourActive = $derived(guidedTourState.status === 'running');
+	const loading = $derived(chatUiState.loading);
+	const toolCalling = $derived(chatUiState.toolCalling);
 
-	const { sendMessage } = useChatStream({
+	const { sendMessage, sendSeededMessage } = useChatStream({
 		chatMessages,
 		simulationValues,
 		bohrSimulationValues,
 		visualizationState,
 		setLoading: (next) => {
-			loading = next;
+			chatUiState.loading = next;
 		},
 		setToolCalling: (next) => {
-			toolCalling = next;
-		}
+			chatUiState.toolCalling = next;
+		},
+		getExtraBody: () => ({
+			surface: 'orbital_page',
+			...(chatUiState.conversationId ? { conversationId: chatUiState.conversationId } : {})
+		})
 	});
 
 	const scrollToBottom = async () => {
@@ -75,6 +90,20 @@
 	$effect(() => {
 		toolCalling;
 		void scrollToBottom();
+	});
+
+	$effect(() => {
+		if (!chatHandoffState.active || !chatHandoffState.draft) {
+			return;
+		}
+
+		const draft = chatHandoffState.draft;
+		chatUiState.loading = true;
+		chatUiState.toolCalling = false;
+		chatHandoffState.active = false;
+		chatHandoffState.draft = null;
+		chatHandoffState.conversationId = null;
+		sendSeededMessage(draft);
 	});
 
 	const send = async (prebakedMsg?: string) => {
@@ -127,9 +156,11 @@
 				return;
 			}
 
+			chatUiState.conversationId = null;
 			chatMessages.length = 0;
 			messageSent = false;
 			input = '';
+			feedbackTarget = null;
 			clearGuidedTour();
 		} catch (error) {
 			showErrorToast(error, 'Could not create a new conversation.');
@@ -137,10 +168,89 @@
 			creatingConversation = false;
 		}
 	};
+
+	const openFeedback = (message: Message, preference: 'up' | 'down') => {
+		feedbackTarget = message;
+		feedbackPreference = preference;
+		feedbackCorrectness = preference === 'up' ? 5 : 2;
+		feedbackTone = preference === 'up' ? 5 : 2;
+		feedbackUnderstandability = preference === 'up' ? 5 : 2;
+		feedbackExplanation = '';
+	};
+
+	const closeFeedback = () => {
+		if (submittingFeedback) {
+			return;
+		}
+
+		feedbackTarget = null;
+	};
+
+	const submitFeedback = async () => {
+		if (!feedbackTarget?.serverId || submittingFeedback) {
+			return;
+		}
+
+		submittingFeedback = true;
+
+		try {
+			const response = await fetch('/api/chat/v1/feedback', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					messageId: feedbackTarget.serverId,
+					preference: feedbackPreference,
+					correctness: feedbackCorrectness,
+					tone: feedbackTone,
+					understandability: feedbackUnderstandability,
+					explanation: feedbackExplanation.trim() || undefined
+				})
+			});
+
+			const payload = (await response.json().catch(() => null)) as
+				| { success?: boolean; error?: unknown }
+				| null;
+
+			if (!response.ok || payload?.success !== true) {
+				showErrorToast(payload?.error, 'Could not save your feedback.');
+				return;
+			}
+
+			feedbackTarget.feedbackSubmitted = true;
+			showToast({
+				tone: 'success',
+				title: 'Thank you',
+				message: 'Thanks for your feedback.',
+				durationMs: 5000
+			});
+			feedbackTarget = null;
+		} catch (error) {
+			showErrorToast(error, 'Could not save your feedback.');
+		} finally {
+			submittingFeedback = false;
+		}
+	};
+
+	const setFeedbackRating = (
+		category: 'correctness' | 'tone' | 'understandability',
+		rating: number
+	) => {
+		if (category === 'correctness') {
+			feedbackCorrectness = rating;
+			return;
+		}
+
+		if (category === 'tone') {
+			feedbackTone = rating;
+			return;
+		}
+
+		feedbackUnderstandability = rating;
+	};
 </script>
 
 {#if user}
-	<div class="flex h-full w-full flex-col bg-[rgba(247,241,230,0.62)] text-[var(--museum-text)]">
+	<div class="relative flex h-full w-full flex-col bg-[rgba(247,241,230,0.62)] text-[var(--museum-text)]">
 		<ChatWindowHeader
 			onClose={do_close}
 			onNewConversation={createNewConversation}
@@ -199,7 +309,7 @@
 				{#if msg.role === 'tool'}
 					<ToolCallCard toolCalls={msg.toolCall ? [msg.toolCall] : []} />
 				{:else}
-					<ResponseCard message={msg} />
+					<ResponseCard message={msg} onOpenFeedback={openFeedback} />
 				{/if}
 			{/each}
 
@@ -221,7 +331,278 @@
 		</div>
 
 		<ChatComposer bind:value={input} {loading} onSubmit={() => send()} />
+
+		{#if feedbackTarget}
+			<div class="feedback-overlay" transition:fade>
+				<button
+					type="button"
+					class="feedback-backdrop"
+					aria-label="Close feedback dialog"
+					onclick={closeFeedback}
+				></button>
+				<div
+					class="feedback-card"
+					transition:fade
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="feedback-title"
+					tabindex="-1"
+				>
+					<div class="flex items-start justify-between gap-4">
+						<div>
+							<p class="text-xs font-semibold tracking-[0.18em] text-[var(--museum-subtext)] uppercase">
+								Response Feedback
+							</p>
+							<h2 id="feedback-title" class="mt-2 text-lg font-semibold text-[var(--museum-text)]">
+								Help improve this answer
+							</h2>
+							<p class="mt-1 text-sm text-[var(--museum-subtext)]">
+								Rate the response from 1 to 5 and tell us what could be better.
+							</p>
+						</div>
+						<button type="button" class="feedback-close" onclick={closeFeedback}>Close</button>
+					</div>
+
+					<div class="mt-5 space-y-4">
+						<div>
+							<p class="feedback-label">Initial reaction</p>
+							<p class="mt-2 inline-flex items-center gap-2 text-sm text-[var(--museum-subtext)]">
+								<Icon
+									icon={feedbackPreference === 'up' ? 'lucide:thumbs-up' : 'lucide:thumbs-down'}
+									width="16"
+									height="16"
+									aria-hidden="true"
+								/>
+								<span>{feedbackPreference === 'up' ? 'Helpful' : 'Needs work'}</span>
+							</p>
+						</div>
+
+						<div class="grid gap-4 md:grid-cols-3">
+							<label class="feedback-field">
+								<span class="feedback-label">Correctness</span>
+								<div class="feedback-stars" role="radiogroup" aria-label="Correctness rating">
+									{#each [1, 2, 3, 4, 5] as star}
+										<button
+											type="button"
+											class="feedback-star"
+											class:feedback-star-active={star <= feedbackCorrectness}
+											onclick={() => setFeedbackRating('correctness', star)}
+											aria-label={`Rate correctness ${star} out of 5`}
+											aria-pressed={feedbackCorrectness === star}
+										>
+											<Icon
+												icon={
+													star <= feedbackCorrectness
+														? 'material-symbols:star-rounded'
+														: 'material-symbols:star-outline-rounded'
+												}
+												class="feedback-star-icon"
+												width="18"
+												height="18"
+												aria-hidden="true"
+											/>
+										</button>
+									{/each}
+								</div>
+								<span class="feedback-score">{feedbackCorrectness}/5</span>
+							</label>
+							<label class="feedback-field">
+								<span class="feedback-label">Tone</span>
+								<div class="feedback-stars" role="radiogroup" aria-label="Tone rating">
+									{#each [1, 2, 3, 4, 5] as star}
+										<button
+											type="button"
+											class="feedback-star"
+											class:feedback-star-active={star <= feedbackTone}
+											onclick={() => setFeedbackRating('tone', star)}
+											aria-label={`Rate tone ${star} out of 5`}
+											aria-pressed={feedbackTone === star}
+										>
+											<Icon
+												icon={
+													star <= feedbackTone
+														? 'material-symbols:star-rounded'
+														: 'material-symbols:star-outline-rounded'
+												}
+												class="feedback-star-icon"
+												width="18"
+												height="18"
+												aria-hidden="true"
+											/>
+										</button>
+									{/each}
+								</div>
+								<span class="feedback-score">{feedbackTone}/5</span>
+							</label>
+							<label class="feedback-field">
+								<span class="feedback-label">Understandability</span>
+								<div class="feedback-stars" role="radiogroup" aria-label="Understandability rating">
+									{#each [1, 2, 3, 4, 5] as star}
+										<button
+											type="button"
+											class="feedback-star"
+											class:feedback-star-active={star <= feedbackUnderstandability}
+											onclick={() => setFeedbackRating('understandability', star)}
+											aria-label={`Rate understandability ${star} out of 5`}
+											aria-pressed={feedbackUnderstandability === star}
+										>
+											<Icon
+												icon={
+													star <= feedbackUnderstandability
+														? 'material-symbols:star-rounded'
+														: 'material-symbols:star-outline-rounded'
+												}
+												class="feedback-star-icon"
+												width="18"
+												height="18"
+												aria-hidden="true"
+											/>
+										</button>
+									{/each}
+								</div>
+								<span class="feedback-score">{feedbackUnderstandability}/5</span>
+							</label>
+						</div>
+
+						<label class="feedback-field">
+							<span class="feedback-label">What should improve?</span>
+							<textarea
+								bind:value={feedbackExplanation}
+								rows="4"
+								maxlength="4000"
+								placeholder="Optional: tell us what felt incorrect, confusing, or off-tone."
+							></textarea>
+						</label>
+					</div>
+
+					<div class="mt-6 flex justify-end gap-2">
+						<button type="button" class="feedback-secondary" onclick={closeFeedback}>
+							Cancel
+						</button>
+						<button
+							type="button"
+							class="museum-button rounded-full px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+							onclick={submitFeedback}
+							disabled={submittingFeedback}
+						>
+							{submittingFeedback ? 'Submitting...' : 'Submit feedback'}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 {:else}
 	<ChatSignInPrompt onSignIn={() => goto(resolve('/login'))} />
 {/if}
+
+<style>
+	.feedback-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 50;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1.25rem;
+	}
+
+	.feedback-backdrop {
+		position: absolute;
+		inset: 0;
+		border: 0;
+		background: rgba(20, 25, 31, 0.22);
+		padding: 0;
+		backdrop-filter: blur(4px);
+	}
+
+	.feedback-card {
+		position: relative;
+		z-index: 1;
+		width: min(100%, 42rem);
+		border-radius: 1.5rem;
+		border: 1px solid rgba(44, 61, 75, 0.14);
+		background: rgba(255, 250, 242, 0.98);
+		padding: 1.25rem;
+		box-shadow: 0 24px 70px rgba(44, 42, 38, 0.2);
+	}
+
+	.feedback-close,
+	.feedback-secondary {
+		border-radius: 9999px;
+		border: 1px solid rgba(44, 61, 75, 0.18);
+		background: rgba(44, 61, 75, 0.05);
+		padding: 0.55rem 0.95rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--museum-text);
+		transition: background-color 120ms ease;
+	}
+
+	.feedback-close:hover,
+	.feedback-secondary:hover {
+		cursor: pointer;
+		background: rgba(44, 61, 75, 0.1);
+	}
+
+	.feedback-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
+
+	.feedback-label {
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: var(--museum-text);
+	}
+
+	.feedback-score {
+		font-size: 0.8rem;
+		color: var(--museum-subtext);
+	}
+
+	.feedback-stars {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+	}
+
+	.feedback-star {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: 0;
+		background: transparent;
+		padding: 0.1rem;
+		color: rgba(44, 61, 75, 0.28);
+		transition:
+			color 120ms ease,
+			transform 120ms ease;
+	}
+
+	.feedback-star:hover {
+		cursor: pointer;
+		color: rgba(201, 152, 62, 0.95);
+		transform: translateY(-1px);
+	}
+
+	.feedback-star-active {
+		color: rgba(201, 152, 62, 0.95);
+	}
+
+	.feedback-star-active :global(svg) {
+		fill: currentColor;
+	}
+
+	textarea {
+		resize: vertical;
+		border-radius: 1rem;
+		border: 1px solid rgba(44, 61, 75, 0.18);
+		background: rgba(255, 255, 255, 0.9);
+		padding: 0.8rem 0.95rem;
+		font-size: 0.92rem;
+		color: var(--museum-text);
+	}
+
+</style>

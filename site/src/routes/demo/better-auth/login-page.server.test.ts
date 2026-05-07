@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { toAuthFailure } from './login/+page.server';
+import { toAuthFailure } from './login-page.server.helpers';
 
 describe('login page server helpers', () => {
 	test('toAuthFailure returns failed action payload with public error', () => {
