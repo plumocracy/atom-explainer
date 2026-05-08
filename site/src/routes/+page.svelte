@@ -5,7 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
-	import Icon from '@iconify/svelte';
+	import { Atom, LogOut } from '@lucide/svelte';
 	import { signOut } from '$lib/auth-client';
 	import ControlsBar from '$lib/components/ControlsBar.svelte';
 	import OrbitalCanvas from '$lib/components/OrbitalCanvas.svelte';
@@ -315,7 +315,7 @@
 												}}
 												role="menuitem"
 											>
-												<Icon icon="material-symbols:logout-rounded" class="text-base" />
+											<LogOut class="text-base" />
 												Logout
 											</button>
 										</div>
@@ -335,7 +335,7 @@
 								class="museum-button inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold"
 								onclick={() => (show_chat = !show_chat)}
 							>
-								<Icon icon="hugeicons:atomic-power" class="text-base" />
+								<Atom class="text-base" />
 								{show_chat ? 'Hide chat' : 'Open chat'}
 							</button>
 						{/if}

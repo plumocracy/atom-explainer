@@ -6,7 +6,8 @@ import {
 	messageFeedback,
 	messageToolCalls,
 	messages,
-	timeouts
+	timeouts,
+	userTokenUsageEvents
 } from './conversations.schema';
 
 export const UserSelectSchema = createSelectSchema(user);
@@ -29,6 +30,8 @@ export const MessageFeedbackSelectSchema = createSelectSchema(messageFeedback);
 export const MessageFeedbackInsertSchema = createInsertSchema(messageFeedback);
 export const TimeoutSelectSchema = createSelectSchema(timeouts);
 export const TimeoutInsertSchema = createInsertSchema(timeouts);
+export const UserTokenUsageEventSelectSchema = createSelectSchema(userTokenUsageEvents);
+export const UserTokenUsageEventInsertSchema = createInsertSchema(userTokenUsageEvents);
 
 export type UserSelect = z.infer<typeof UserSelectSchema>;
 export type UserInsert = z.infer<typeof UserInsertSchema>;
@@ -50,3 +53,5 @@ export type MessageFeedbackSelect = z.infer<typeof MessageFeedbackSelectSchema>;
 export type MessageFeedbackInsert = z.infer<typeof MessageFeedbackInsertSchema>;
 export type TimeoutSelect = z.infer<typeof TimeoutSelectSchema>;
 export type TimeoutInsert = z.infer<typeof TimeoutInsertSchema>;
+export type UserTokenUsageEventSelect = z.infer<typeof UserTokenUsageEventSelectSchema>;
+export type UserTokenUsageEventInsert = z.infer<typeof UserTokenUsageEventInsertSchema>;

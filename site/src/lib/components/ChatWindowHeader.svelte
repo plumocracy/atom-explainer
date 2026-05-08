@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Icon from '@iconify/svelte';
+	import { Plus, X } from '@lucide/svelte';
 
 	let {
 		onClose,
@@ -29,7 +29,7 @@
 				aria-label="New conversation"
 				title="New conversation"
 			>
-				<Icon icon="material-symbols:add-rounded" class="text-xl" />
+				<Plus class="text-xl" />
 			</button>
 
 			<button
@@ -50,7 +50,7 @@
 			onclick={onClose}
 			aria-label="Close commentary panel"
 		>
-			<Icon icon="material-symbols:close" />
+			<X />
 		</button>
 	</div>
 </div>

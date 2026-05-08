@@ -8,7 +8,8 @@ import {
 	index,
 	check,
 	jsonb,
-	uniqueIndex
+	uniqueIndex,
+	serial
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { user } from './auth.schema';
@@ -71,6 +72,27 @@ export const timeouts = pgTable(
 		timeoutEnd: timestamp('timeout_end', { withTimezone: true }).notNull()
 	},
 	(table) => [index('timeouts_user_id_idx').on(table.userId)]
+);
+
+export const userTokenUsageEvents = pgTable(
+	'user_token_usage_events',
+	{
+		id: serial('id').primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		inputTokens: integer('input_tokens').notNull().default(0),
+		outputTokens: integer('output_tokens').notNull().default(0),
+		totalTokens: integer('total_tokens').notNull(),
+		source: text('source').notNull().default('chat'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(table) => [
+		index('user_token_usage_events_user_id_created_at_idx').on(table.userId, table.createdAt),
+		check('user_token_usage_events_total_tokens_nonnegative', sql`${table.totalTokens} >= 0`),
+		check('user_token_usage_events_input_tokens_nonnegative', sql`${table.inputTokens} >= 0`),
+		check('user_token_usage_events_output_tokens_nonnegative', sql`${table.outputTokens} >= 0`)
+	]
 );
 
 export const messageToolCalls = pgTable(
@@ -137,6 +159,8 @@ export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+export type UserTokenUsageEvent = typeof userTokenUsageEvents.$inferSelect;
+export type NewUserTokenUsageEvent = typeof userTokenUsageEvents.$inferInsert;
 export type MessageToolCall = typeof messageToolCalls.$inferSelect;
 export type NewMessageToolCall = typeof messageToolCalls.$inferInsert;
 export type MessageFeedback = typeof messageFeedback.$inferSelect;

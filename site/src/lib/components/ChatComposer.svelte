@@ -1,5 +1,6 @@
 <script lang="ts">
-	import Icon from '@iconify/svelte';
+	import { tick } from 'svelte';
+	import { Atom, ArrowUp } from '@lucide/svelte';
 
 	let {
 		value = $bindable(),
@@ -14,6 +15,22 @@
 	} = $props();
 
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
+
+	const resizeTextarea = () => {
+		if (!textareaEl) {
+			return;
+		}
+
+		textareaEl.style.height = 'auto';
+		textareaEl.style.height = value.trim() ? `${textareaEl.scrollHeight}px` : '';
+	};
+
+	$effect(() => {
+		const currentValue = value;
+		if (typeof currentValue === 'string') {
+			void tick().then(resizeTextarea);
+		}
+	});
 
 	const submit = () => {
 		if (loading || !value.trim()) {
@@ -35,12 +52,7 @@
 	};
 
 	const onInput = () => {
-		if (!textareaEl) {
-			return;
-		}
-
-		textareaEl.style.height = 'auto';
-		textareaEl.style.height = `${textareaEl.scrollHeight}px`;
+		resizeTextarea();
 	};
 </script>
 
@@ -65,9 +77,9 @@
 			class="museum-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg disabled:cursor-not-allowed disabled:opacity-50 md:h-11 md:w-11 md:text-xl"
 		>
 			{#if loading}
-				<Icon icon="eos-icons:atom-electron" class="animate-pulse text-[var(--museum-accent)]" />
+				<Atom class="animate-pulse text-[var(--museum-accent)]" />
 			{:else}
-				<Icon icon="solar:round-arrow-up-bold" class="text-[var(--museum-accent)]" />
+				<ArrowUp class="text-[var(--museum-accent)]" />
 			{/if}
 		</button>
 	</div>

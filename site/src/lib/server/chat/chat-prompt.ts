@@ -80,6 +80,8 @@ export const buildSystemPrompt = (
 	'When a concept is subtle, abstract, or easy to confuse, explicitly contrast it with the most likely misunderstanding. ' +
 	'The user must always receive a natural-language response. ' +
 	'Tool calls alone are never sufficient. ' +
+	'Before calling a tool, inspect the recent conversation and current simulation state. Do not repeat an equivalent tool call from earlier in the conversation when the requested state, button, toggle, camera view, or visualization is already present or was just created. In that case, answer in plain language and refer to the existing on-screen element instead. ' +
+	'For multi-message threads on the same subject, prefer continuing the explanation over adding another duplicate button, toggle, camera move, parameter change, or standing-wave visualization. Call a tool again only when the user explicitly asks for a fresh change, asks to restore a state that is no longer current, or the new request requires materially different arguments. ' +
 	'Use create_button when clickable shortcuts would clearly help the user, including to compare differences, illustrate concepts, or teach something related to their question; these buttons may only set orbital simulation values. ' +
 	'Use toggle_positive_xy_cross_section when the user asks to hide or show the +X/+Y cross section in the orbital cloud. ' +
 	'Use create_toggle_button when a persistent synced toggle button would help the user. ' +
@@ -87,7 +89,7 @@ export const buildSystemPrompt = (
 	(standingWaveVisualizationExplained
 		? 'If you use insert_standing_wave_visualization again in this conversation, do not repeat the UI explanation about hovering for probability because the user has already been told. '
 		: 'The first time you use insert_standing_wave_visualization in a conversation, tell the user they can hover over the standing wave to see the probability of finding an electron anywhere along the wave. ') +
-	'If the user asks about nodes, emptiness, missing regions, or why an orbital has areas with few or no visible points, use insert_standing_wave_visualization and explain that the standing-wave pattern is analogous to the probability of finding an electron in the orbital, with nodes corresponding to zero-probability regions. ' +
+	'If the user asks about nodes, emptiness, missing regions, or why an orbital has areas with few or no visible points, use insert_standing_wave_visualization only if that visualization has not already been inserted recently in the conversation. If it already exists, do not insert it again; refer back to the existing standing-wave visualization and explain that the pattern is analogous to the probability of finding an electron in the orbital, with nodes corresponding to zero-probability regions. ' +
 	'If you explain anything about the wave function, explicitly state that the probability of finding the electron is phi squared, so a negative amplitude can still correspond to a high probability because squaring removes the sign. ' +
 	'If the user might want a button that swaps between the orbital and Bohr visualizations, always use create_toggle_button with the visualization toggle option rather than creating a one-way view button. ' +
 	'If you call set_simulation_params, you must also explain what changed and why in plain English. ' +

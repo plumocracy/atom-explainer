@@ -55,31 +55,30 @@ export const recordUserMessage = async (
 	input: RecordUserMessageInput
 ): Promise<ServerResult<string>> => {
 	try {
-		const [userMessage] = await db
-			.insert(messages)
-			.values({
-				userId: input.userId,
-				conversationId: input.conversationId,
-				role: 'user',
-				content: input.message,
-				userInputTokens: input.userInputTokens,
-				simulationValues: JSON.stringify(input.simulation),
-				model: input.model
-			})
-			.returning({ id: messages.id });
+		const userMessageId = crypto.randomUUID();
+		await db.transaction(async (tx) => {
+			await tx
+				.insert(messages)
+				.values({
+					id: userMessageId,
+					userId: input.userId,
+					conversationId: input.conversationId,
+					role: 'user',
+					content: input.message,
+					userInputTokens: input.userInputTokens,
+					simulationValues: JSON.stringify(input.simulation),
+					model: input.model
+				});
 
-		if (!userMessage) {
-			return err(appError.internal('Could not insert user message'));
-		}
+			await tx
+				.update(conversations)
+				.set({
+					userInputTokens: sql`${conversations.userInputTokens} + ${input.userInputTokens}`
+				})
+				.where(eq(conversations.id, input.conversationId));
+		});
 
-		await db
-			.update(conversations)
-			.set({
-				userInputTokens: sql`${conversations.userInputTokens} + ${input.userInputTokens}`
-			})
-			.where(eq(conversations.id, input.conversationId));
-
-		return ok(userMessage.id);
+		return ok(userMessageId);
 	} catch (error) {
 		return err(appError.internal('Could not insert user message', { cause: error }));
 	}
@@ -89,24 +88,9 @@ export const finalizeAssistantTurn = async (
 	input: FinalizeAssistantTurnInput
 ): Promise<ServerResult<string>> => {
 	try {
-		const [assistantMessage] = await db
-			.insert(messages)
-			.values({
-				userId: input.userId,
-				conversationId: input.conversationId,
-				role: 'assistant',
-				content: input.assistantMessage,
-				simulationValues: input.metadata ?? null,
-				model: input.model
-			})
-			.returning({ id: messages.id });
-
-		if (!assistantMessage) {
-			return err(appError.internal('Could not insert assistant message'));
-		}
-
+		const assistantMessageId = crypto.randomUUID();
 		const toolCallRows: MessageToolCallInsert[] = input.toolCalls.map((toolCall) => ({
-			messageId: assistantMessage.id,
+			messageId: assistantMessageId,
 			providerCallId: toolCall.id ?? null,
 			callIndex: toolCall.index,
 			toolType: toolCall.type,
@@ -115,26 +99,40 @@ export const finalizeAssistantTurn = async (
 			argumentsJson: toolCall.function.parsedArguments ?? null
 		}));
 
-		if (toolCallRows.length) {
-			await db.insert(messageToolCalls).values(toolCallRows);
-		}
+		await db.transaction(async (tx) => {
+			await tx
+				.insert(messages)
+				.values({
+					id: assistantMessageId,
+					userId: input.userId,
+					conversationId: input.conversationId,
+					role: 'assistant',
+					content: input.assistantMessage,
+					simulationValues: input.metadata ?? null,
+					model: input.model
+				});
 
-		if (input.userMessageId) {
-			await db
-				.update(messages)
-				.set({ responseAt: new Date() })
-				.where(and(eq(messages.userId, input.userId), eq(messages.id, input.userMessageId)));
-		}
+			if (toolCallRows.length) {
+				await tx.insert(messageToolCalls).values(toolCallRows);
+			}
 
-		await db
-			.update(conversations)
-			.set({
-				completionTokens: sql`${conversations.completionTokens} + ${input.usage.completionTokens}`,
-				promptTokens: input.usage.promptTokens
-			})
-			.where(eq(conversations.id, input.conversationId));
+			if (input.userMessageId) {
+				await tx
+					.update(messages)
+					.set({ responseAt: new Date() })
+					.where(and(eq(messages.userId, input.userId), eq(messages.id, input.userMessageId)));
+			}
 
-		return ok(assistantMessage.id);
+			await tx
+				.update(conversations)
+				.set({
+					completionTokens: sql`${conversations.completionTokens} + ${input.usage.completionTokens}`,
+					promptTokens: input.usage.promptTokens
+				})
+				.where(eq(conversations.id, input.conversationId));
+		});
+
+		return ok(assistantMessageId);
 	} catch (error) {
 		return err(appError.internal('Could not finalize assistant response', { cause: error }));
 	}
@@ -144,24 +142,9 @@ export const recordAssistantMessage = async (
 	input: RecordAssistantMessageInput
 ): Promise<ServerResult<string>> => {
 	try {
-		const [assistantMessage] = await db
-			.insert(messages)
-			.values({
-				userId: input.userId,
-				conversationId: input.conversationId,
-				role: 'assistant',
-				content: input.assistantMessage,
-				simulationValues: input.metadata ?? null,
-				model: input.model
-			})
-			.returning({ id: messages.id });
-
-		if (!assistantMessage) {
-			return err(appError.internal('Could not insert assistant message'));
-		}
-
+		const assistantMessageId = crypto.randomUUID();
 		const toolCallRows: MessageToolCallInsert[] = (input.toolCalls ?? []).map((toolCall) => ({
-			messageId: assistantMessage.id,
+			messageId: assistantMessageId,
 			providerCallId: toolCall.id ?? null,
 			callIndex: toolCall.index,
 			toolType: toolCall.type,
@@ -170,11 +153,25 @@ export const recordAssistantMessage = async (
 			argumentsJson: toolCall.function.parsedArguments ?? null
 		}));
 
-		if (toolCallRows.length) {
-			await db.insert(messageToolCalls).values(toolCallRows);
-		}
+		await db.transaction(async (tx) => {
+			await tx
+				.insert(messages)
+				.values({
+					id: assistantMessageId,
+					userId: input.userId,
+					conversationId: input.conversationId,
+					role: 'assistant',
+					content: input.assistantMessage,
+					simulationValues: input.metadata ?? null,
+					model: input.model
+				});
 
-		return ok(assistantMessage.id);
+			if (toolCallRows.length) {
+				await tx.insert(messageToolCalls).values(toolCallRows);
+			}
+		});
+
+		return ok(assistantMessageId);
 	} catch (error) {
 		return err(appError.internal('Could not insert assistant message', { cause: error }));
 	}
@@ -193,6 +190,33 @@ export const getToolCallsForMessage = async (
 		return ok(toolCalls);
 	} catch (error) {
 		return err(appError.internal('Could not load tool calls for message', { cause: error }));
+	}
+};
+
+export const getToolCallsForMessages = async (
+	messageIds: string[]
+): Promise<ServerResult<Map<string, MessageToolCallSelect[]>>> => {
+	if (!messageIds.length) {
+		return ok(new Map());
+	}
+
+	try {
+		const rows = await db
+			.select()
+			.from(messageToolCalls)
+			.where(inArray(messageToolCalls.messageId, messageIds))
+			.orderBy(asc(messageToolCalls.messageId), asc(messageToolCalls.callIndex));
+
+		const toolCallsByMessageId = new Map<string, MessageToolCallSelect[]>();
+		for (const row of rows) {
+			const messageToolCallsForMessage = toolCallsByMessageId.get(row.messageId) ?? [];
+			messageToolCallsForMessage.push(row);
+			toolCallsByMessageId.set(row.messageId, messageToolCallsForMessage);
+		}
+
+		return ok(toolCallsByMessageId);
+	} catch (error) {
+		return err(appError.internal('Could not load tool calls for messages', { cause: error }));
 	}
 };
 

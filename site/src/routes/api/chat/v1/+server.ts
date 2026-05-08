@@ -21,13 +21,17 @@ import {
 import { buildSystemPrompt } from '$lib/server/chat/chat-prompt';
 import { createChatStream } from '$lib/server/chat/chat-client';
 import { estimateUserInputTokens } from '$lib/server/chat/user-input-tokens';
+import {
+	canUserUseChatTokens,
+	recordTokenUsage
+} from '$lib/server/usage-limits';
 import { parseCreateButtons } from '$lib/chat-buttons';
 import { generateConversationTitle } from '$lib/server/chat/chat-title';
 import { expandBatchedToolCalls, ToolCallStreamAccumulator } from '$lib/server/chat/chat-tools';
 import {
 	finalizeAssistantTurn,
 	getFeedbackMessageIdsForUser,
-	getToolCallsForMessage,
+	getToolCallsForMessages,
 	recordAssistantMessage,
 	recordUserMessage
 } from '$lib/server/chat/chat-store';
@@ -37,6 +41,21 @@ import { getNextTourStep, getTourCompletionMessage, getTourStep } from '$lib/tou
 import { createTourToolCalls } from '$lib/tours/tour-tool-calls';
 
 const CHAT_MODEL = 'deepseek-3.2';
+
+const usageLimitStreamResponse = (message: string) => {
+	const stream = new ReadableStream({
+		start(controller) {
+			controller.enqueue(encodeSse({ token: message }));
+			controller.enqueue(encodeSse({ done: true }));
+			controller.close();
+		},
+		cancel() {
+			// no-op
+		}
+	});
+
+	return new Response(stream, { headers: CHAT_STREAM_HEADERS });
+};
 
 const persistRunningTourMessage = async (input: {
 	userId: string;
@@ -278,32 +297,30 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			return toErrorResponse(historyResult.error, locals.requestId);
 		}
 
-		const messagesWithToolCalls = await Promise.all(
-			historyResult.data.map(async (message) => {
-				const toolCallsResult = await getToolCallsForMessage(message.id);
-				if (!toolCallsResult.ok) {
-					throw toolCallsResult.error;
-				}
-
-				return {
-					id: message.id,
-					role: message.role,
-					content: message.content,
-					createdAt: message.createdAt,
-					tourState: parsePersistedTourState(message.simulationValues),
-					toolCalls: toolCallsResult.data.map((toolCall) => ({
-						id: toolCall.id,
-						providerCallId: toolCall.providerCallId,
-						callIndex: toolCall.callIndex,
-						toolType: toolCall.toolType,
-						toolName: toolCall.toolName,
-						argumentsRaw: toolCall.argumentsRaw,
-						argumentsJson: toolCall.argumentsJson,
-						createdAt: toolCall.createdAt
-					}))
-				};
-			})
+		const toolCallsResult = await getToolCallsForMessages(
+			historyResult.data.map((message) => message.id)
 		);
+		if (!toolCallsResult.ok) {
+			return toErrorResponse(toolCallsResult.error, locals.requestId);
+		}
+
+		const messagesWithToolCalls = historyResult.data.map((message) => ({
+			id: message.id,
+			role: message.role,
+			content: message.content,
+			createdAt: message.createdAt,
+			tourState: parsePersistedTourState(message.simulationValues),
+			toolCalls: (toolCallsResult.data.get(message.id) ?? []).map((toolCall) => ({
+				id: toolCall.id,
+				providerCallId: toolCall.providerCallId,
+				callIndex: toolCall.callIndex,
+				toolType: toolCall.toolType,
+				toolName: toolCall.toolName,
+				argumentsRaw: toolCall.argumentsRaw,
+				argumentsJson: toolCall.argumentsJson,
+				createdAt: toolCall.createdAt
+			}))
+		}));
 
 		const feedbackIdsResult = await getFeedbackMessageIdsForUser(
 			userId,
@@ -350,6 +367,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		const userId = userResult.data.id;
 		const { message, conversationId, surface, starterMode, simulation, guidedTour } = payload.data;
 		const userInputTokens = estimateUserInputTokens(message);
+		const usageLimitResult = await canUserUseChatTokens(userId, starterMode ? 0 : userInputTokens);
+		if (!usageLimitResult.ok) {
+			return usageLimitStreamResponse(usageLimitResult.error.message);
+		}
 
 		const conversation = conversationId
 			? await (async () => {
@@ -623,6 +644,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						throw finalizeResult.error;
 					}
 					const assistantMessageId = finalizeResult.data;
+					const usageRecordResult = await recordTokenUsage({
+						userId,
+						inputTokens: starterMode ? 0 : userInputTokens,
+						outputTokens: usage.completionTokens,
+						source: 'chat'
+					});
+					if (!usageRecordResult.ok) {
+						console.error(usageRecordResult.error);
+					}
 
 					if (
 						!conversation.standingWaveVisualizationExplained &&

@@ -5,7 +5,7 @@
 	import { renderMarkdown } from '$lib/render_markdown';
 	import { getRevealFrames, isMathRevealRoot } from '$lib/render_reveal';
 	import { findStableMarkdownBoundary } from '$lib/streaming_markdown';
-	import Icon from '@iconify/svelte';
+	import { ThumbsDown, ThumbsUp } from '@lucide/svelte';
 	import { fade } from 'svelte/transition';
 	import StandingWaveCanvas from './StandingWaveCanvas.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
@@ -368,7 +368,7 @@
 						aria-label="Rate this response helpful"
 						onclick={() => onOpenFeedback?.(message, 'up')}
 					>
-						<Icon icon="lucide:thumbs-up" width="16" height="16" aria-hidden="true" />
+						<ThumbsUp width="16" height="16" aria-hidden="true" />
 					</button>
 					<button
 						type="button"
@@ -376,7 +376,7 @@
 						aria-label="Rate this response needs work"
 						onclick={() => onOpenFeedback?.(message, 'down')}
 					>
-						<Icon icon="lucide:thumbs-down" width="16" height="16" aria-hidden="true" />
+						<ThumbsDown width="16" height="16" aria-hidden="true" />
 					</button>
 				{/if}
 			</div>

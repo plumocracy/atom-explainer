@@ -88,5 +88,11 @@ describe('chat-prompt helpers', () => {
 		expect(buildSystemPrompt(simulation, 'orbital_page', false)).toContain(
 			'do not stop at 80 percent of the idea'
 		);
+		expect(buildSystemPrompt(simulation, 'orbital_page', false)).toContain(
+			'Do not repeat an equivalent tool call'
+		);
+		expect(buildSystemPrompt(simulation, 'orbital_page', false)).toContain(
+			'If it already exists, do not insert it again'
+		);
 	});
 });

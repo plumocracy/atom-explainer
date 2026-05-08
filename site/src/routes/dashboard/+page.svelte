@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { resolve } from '$app/paths';
-	import Icon from '@iconify/svelte';
+	import { Home, MessageSquare, X } from '@lucide/svelte';
 	import ResponseCard from '$lib/components/ResponseCard.svelte';
 	import { createChatMessage, type Message } from '$lib/chat.svelte';
 	import type { PageProps } from './$types';
@@ -277,7 +277,7 @@
 							aria-label="Clear search"
 							title="Clear search"
 						>
-							<Icon icon="material-symbols:close-rounded" class="text-lg" />
+							<X class="text-lg" />
 						</button>
 					{/if}
 					{#if data.isAdmin}
@@ -287,7 +287,7 @@
 							aria-label="Feedback"
 							title="Feedback"
 						>
-							<Icon icon="material-symbols:forum-outline-rounded" class="text-lg" />
+							<MessageSquare class="text-lg" />
 						</a
 						>
 					{/if}
@@ -297,7 +297,7 @@
 						aria-label="Back to exhibit"
 						title="Back to exhibit"
 					>
-						<Icon icon="material-symbols:home-outline-rounded" class="text-lg" />
+						<Home class="text-lg" />
 					</a
 					>
 				</div>
@@ -314,7 +314,7 @@
 							onclick={closeConversationReview}
 							aria-label="Close conversation review"
 						>
-							<Icon icon="material-symbols:close-rounded" class="text-lg" />
+							<X class="text-lg" />
 						</button>
 						<a
 							href={`${resolve('/')}?conversation=${encodeURIComponent(selectedConversationId)}&openChat=1`}

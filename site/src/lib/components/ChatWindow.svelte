@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import Icon from '@iconify/svelte';
+	import { ArrowLeft, Star, ThumbsDown, ThumbsUp, Trash2 } from '@lucide/svelte';
 	import {
 		applyToolCallMessages,
 		bohrSimulationValues,
@@ -796,7 +796,7 @@
 						}}
 						aria-label="Back to chat"
 					>
-						<Icon icon="material-symbols:arrow-back-rounded" class="text-lg" />
+						<ArrowLeft class="text-lg" />
 					</button>
 				</div>
 
@@ -846,7 +846,7 @@
 											onclick={() => (confirmDeleteConversationId = result.conversationId)}
 											aria-label="Delete conversation"
 										>
-											<Icon icon="material-symbols:delete-outline-rounded" class="text-lg" />
+											<Trash2 class="text-lg" />
 										</button>
 									</div>
 									{#if confirmDeleteConversationId === result.conversationId}
@@ -933,10 +933,7 @@
 															onclick={() => (confirmDeleteConversationId = conversation.id)}
 															aria-label="Delete conversation"
 														>
-															<Icon
-																icon="material-symbols:delete-outline-rounded"
-																class="text-lg"
-															/>
+													<Trash2 class="text-lg" />
 														</button>
 													</div>
 
@@ -1058,12 +1055,11 @@
 						<div>
 							<p class="feedback-label">Initial reaction</p>
 							<p class="mt-2 inline-flex items-center gap-2 text-sm text-[var(--museum-subtext)]">
-								<Icon
-									icon={feedbackPreference === 'up' ? 'lucide:thumbs-up' : 'lucide:thumbs-down'}
-									width="16"
-									height="16"
-									aria-hidden="true"
-								/>
+								{#if feedbackPreference === 'up'}
+									<ThumbsUp width="16" height="16" aria-hidden="true" />
+								{:else}
+									<ThumbsDown width="16" height="16" aria-hidden="true" />
+								{/if}
 								<span>{feedbackPreference === 'up' ? 'Helpful' : 'Needs work'}</span>
 							</p>
 						</div>
@@ -1081,13 +1077,11 @@
 											aria-label={`Rate correctness ${star} out of 5`}
 											aria-pressed={feedbackCorrectness === star}
 										>
-											<Icon
-												icon={star <= feedbackCorrectness
-													? 'material-symbols:star-rounded'
-													: 'material-symbols:star-outline-rounded'}
+											<Star
 												class="feedback-star-icon"
 												width="18"
 												height="18"
+												fill={star <= feedbackCorrectness ? 'currentColor' : 'none'}
 												aria-hidden="true"
 											/>
 										</button>
@@ -1107,13 +1101,11 @@
 											aria-label={`Rate tone ${star} out of 5`}
 											aria-pressed={feedbackTone === star}
 										>
-											<Icon
-												icon={star <= feedbackTone
-													? 'material-symbols:star-rounded'
-													: 'material-symbols:star-outline-rounded'}
+											<Star
 												class="feedback-star-icon"
 												width="18"
 												height="18"
+												fill={star <= feedbackTone ? 'currentColor' : 'none'}
 												aria-hidden="true"
 											/>
 										</button>
@@ -1133,13 +1125,11 @@
 											aria-label={`Rate understandability ${star} out of 5`}
 											aria-pressed={feedbackUnderstandability === star}
 										>
-											<Icon
-												icon={star <= feedbackUnderstandability
-													? 'material-symbols:star-rounded'
-													: 'material-symbols:star-outline-rounded'}
+											<Star
 												class="feedback-star-icon"
 												width="18"
 												height="18"
+												fill={star <= feedbackUnderstandability ? 'currentColor' : 'none'}
 												aria-hidden="true"
 											/>
 										</button>
