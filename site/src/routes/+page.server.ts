@@ -3,6 +3,8 @@ import { env } from '$env/dynamic/private';
 import { appError, throwKitError } from '$lib/server/errors';
 import type { ChatButton } from '$lib/chat-buttons';
 import { parseCreateButtons } from '$lib/chat-buttons';
+import { getConversationSummaries } from '$lib/server/conversation';
+import { isAdminUser } from '$lib/server/user';
 import type { PersistedTourState } from '$lib/tours/tour-persistence';
 import {
 	isMobileRequest,
@@ -104,16 +106,46 @@ export const load: PageServerLoad = async (event) => {
 	const openChat = event.url.searchParams.get('openChat') === '1';
 
 	if (!user) {
-		return { user: null, chatEnabled, mobileDevice, messages: [], openChat: false, conversationId: null };
-	}
-
-	if (mobileDevice) {
-		return { user, chatEnabled, mobileDevice, messages: [], openChat: false, conversationId: null };
+		return {
+			user: null,
+			chatEnabled,
+			mobileDevice,
+			messages: [],
+			openChat: false,
+			conversationId: null,
+			isAdmin: false
+		};
 	}
 
 	if (!chatEnabled) {
-		return { user, chatEnabled, mobileDevice, messages: [], openChat: false, conversationId: null };
+		const adminResult = await isAdminUser(user.id);
+		if (!adminResult.ok) {
+			throwKitError(adminResult.error, locals.requestId);
+		}
+		const isAdmin = adminResult.ok ? adminResult.data : false;
+		return {
+			user,
+			chatEnabled,
+			mobileDevice,
+			messages: [],
+			openChat: false,
+			conversationId: null,
+			isFirstChatSession: false,
+			isAdmin
+		};
 	}
+
+	const summariesResult = await getConversationSummaries(user.id);
+	if (!summariesResult.ok) {
+		throwKitError(summariesResult.error, locals.requestId);
+	}
+	const adminResult = await isAdminUser(user.id);
+	if (!adminResult.ok) {
+		throwKitError(adminResult.error, locals.requestId);
+	}
+	const isAdmin = adminResult.ok ? adminResult.data : false;
+	const summaries = summariesResult.ok ? summariesResult.data : [];
+	const isFirstChatSession = summaries.length === 0;
 
 	const historyPath = selectedConversationId
 		? `/api/chat/v1?conversation=${encodeURIComponent(selectedConversationId)}`
@@ -235,6 +267,8 @@ export const load: PageServerLoad = async (event) => {
 		messages: messagesWithTools,
 		currentTour: safePayload.currentTour ?? null,
 		openChat,
-		conversationId: safePayload.conversationId ?? selectedConversationId
+		conversationId: safePayload.conversationId ?? selectedConversationId,
+		isFirstChatSession,
+		isAdmin
 	};
 };

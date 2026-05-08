@@ -11,7 +11,15 @@ const fallbackEscapeHtml = (value: string): string =>
 		.replaceAll('"', '&quot;')
 		.replaceAll("'", '&#39;');
 
+const getRevealFrames = (expression: string): number => {
+	const normalized = expression.replace(/\s+/g, ' ').trim();
+	return Math.max(1, normalized.length);
+};
+
 const renderMath = (expression: string, displayMode: boolean): string => {
+	const revealFrames = getRevealFrames(expression);
+	const revealAttr = `data-reveal-frames="${revealFrames}"`;
+
 	try {
 		const rendered = katex.renderToString(expression, {
 			displayMode,
@@ -19,12 +27,14 @@ const renderMath = (expression: string, displayMode: boolean): string => {
 			strict: 'ignore'
 		});
 
-		return displayMode ? rendered : `<span class="inline-math-chip">${rendered}</span>`;
+		return displayMode
+			? `<div class="display-math-block" ${revealAttr}>${rendered}</div>`
+			: `<span class="inline-math-chip" ${revealAttr}>${rendered}</span>`;
 	} catch {
 		const escapedExpression = fallbackEscapeHtml(expression);
 		return displayMode
-			? `<pre><code>${escapedExpression}</code></pre>`
-			: `<span class="inline-math-chip"><code>${escapedExpression}</code></span>`;
+			? `<div class="display-math-block" ${revealAttr}><pre><code>${escapedExpression}</code></pre></div>`
+			: `<span class="inline-math-chip" ${revealAttr}><code>${escapedExpression}</code></span>`;
 	}
 };
 

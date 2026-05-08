@@ -31,7 +31,7 @@ type RecordUserMessageInput = {
 type FinalizeAssistantTurnInput = {
 	userId: string;
 	conversationId: string;
-	userMessageId: string;
+	userMessageId?: string;
 	assistantMessage: string;
 	model: MessageModel;
 	metadata?: string | null;
@@ -119,10 +119,12 @@ export const finalizeAssistantTurn = async (
 			await db.insert(messageToolCalls).values(toolCallRows);
 		}
 
-		await db
-			.update(messages)
-			.set({ responseAt: new Date() })
-			.where(and(eq(messages.userId, input.userId), eq(messages.id, input.userMessageId)));
+		if (input.userMessageId) {
+			await db
+				.update(messages)
+				.set({ responseAt: new Date() })
+				.where(and(eq(messages.userId, input.userId), eq(messages.id, input.userMessageId)));
+		}
 
 		await db
 			.update(conversations)

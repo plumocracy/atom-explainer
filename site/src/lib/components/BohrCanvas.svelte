@@ -37,6 +37,8 @@
 	let lastTick = 0;
 
 	let atomicNumber = $derived(bohrSimulationValues.atomicNumber);
+	const shellDistribution = $derived.by(() => getBohrShellDistribution(atomicNumber));
+
 
 	const ringSegments = 128;
 	const ELECTRON_SPHERE_RADIUS = 0.16;
@@ -79,16 +81,6 @@
 	let activePointerId: number | null = null;
 	let lastPointerX = 0;
 	let lastPointerY = 0;
-
-	const clampAtomicNumber = (next: number) => {
-		bohrSimulationValues.atomicNumber = Math.max(1, Math.min(20, next));
-	};
-
-	const shellDistribution = $derived.by(() => {
-		return getBohrShellDistribution(atomicNumber);
-	});
-
-	const shellSummary = $derived(shellDistribution.join(', '));
 
 	const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 	const persistCameraPose = () => {
@@ -671,34 +663,6 @@ void main() {
 </script>
 
 <div class="flex h-full min-h-0 w-full flex-col overflow-hidden text-[var(--color-exhibit-paper)]">
-	<div class="z-20 bg-[var(--museum-surface)] px-3 py-2 md:px-4 md:py-2.5">
-		<div class="flex flex-wrap items-center gap-2">
-			<button
-				type="button"
-				class="rounded border border-[rgba(44,61,75,0.68)] px-2 py-0.5 text-[11px] leading-4 text-[rgba(44,61,75,0.95)] hover:cursor-pointer hover:bg-[rgba(44,61,75,0.1)] disabled:opacity-45 disabled:hover:bg-transparent"
-				onclick={() => clampAtomicNumber(atomicNumber - 1)}
-				disabled={atomicNumber <= 1}
-			>
-				-1
-			</button>
-
-			<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
-				>Bohr model 3D · Z={atomicNumber}</span
-			>
-
-			<button
-				type="button"
-				class="rounded border border-[rgba(44,61,75,0.68)] px-2 py-0.5 text-[11px] leading-4 text-[rgba(44,61,75,0.95)] hover:cursor-pointer hover:bg-[rgba(44,61,75,0.1)] disabled:opacity-45 disabled:hover:bg-transparent"
-				onclick={() => clampAtomicNumber(atomicNumber + 1)}
-				disabled={atomicNumber >= 20}
-			>
-				+1
-			</button>
-
-			<span class="text-[11px] text-[rgba(44,61,75,0.72)]">Shells: {shellSummary}</span>
-		</div>
-	</div>
-
 	<div class="relative min-h-0 flex-1">
 		<div
 			class="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_14%_18%,rgba(126,255,163,0.14),transparent_40%),radial-gradient(circle_at_78%_12%,rgba(214,255,228,0.05),transparent_32%),linear-gradient(135deg,#081017_0%,#0e1b25_60%,#142431_100%)]"

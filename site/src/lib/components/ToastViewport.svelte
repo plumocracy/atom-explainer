@@ -37,6 +37,18 @@
 					{#if toast.requestId}
 						<p class="mt-2 text-[11px] text-[var(--museum-subtext)]">Request ID: {toast.requestId}</p>
 					{/if}
+					{#if toast.actionLabel && toast.onAction}
+						<button
+							type="button"
+							class="mt-3 rounded-md border border-[var(--museum-stroke-strong)] bg-[rgba(255,255,255,0.34)] px-2.5 py-1 text-[11px] font-semibold text-[var(--museum-subtext)] transition hover:cursor-pointer hover:bg-[rgba(255,255,255,0.6)] hover:text-[var(--museum-text)]"
+							onclick={() => {
+								toast.onAction?.();
+								dismissToast(toast.id);
+							}}
+						>
+							{toast.actionLabel}
+						</button>
+					{/if}
 				</div>
 				<button
 					type="button"

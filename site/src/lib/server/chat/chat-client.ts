@@ -1,17 +1,13 @@
-import { OpenRouter } from '@openrouter/sdk';
-import { env } from '$env/dynamic/private';
 import type { ConversationMessage } from '$lib/server/conversation';
+import { openRouter } from '$lib/server/openrouter';
 import type { StreamedToolCall } from './chat-contract';
 import { CHAT_TOOLS } from './chat-tools';
-
-const openRouter = new OpenRouter({
-	apiKey: env.OPENROUTER_API_KEY,
-});
 
 type CreateChatStreamInput = {
 	systemPrompt: string;
 	history: ConversationMessage[];
 	message: string;
+	allowTools?: boolean;
 };
 
 type CreateToolExplanationInput = {
@@ -145,7 +141,7 @@ export const createChatStream = (input: CreateChatStreamInput) => {
 				{ role: 'user', content: input.message.trim() },
 			],
 			temperature: 0,
-			tools: CHAT_TOOLS,
+			...(input.allowTools === false ? {} : { tools: CHAT_TOOLS }),
 			stream: true,
 		},
 	});

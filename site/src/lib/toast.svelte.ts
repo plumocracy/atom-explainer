@@ -10,6 +10,8 @@ export type Toast = {
 	message: string;
 	requestId?: string;
 	durationMs: number;
+	actionLabel?: string;
+	onAction?: () => void;
 };
 
 type ToastInput = {
@@ -18,6 +20,8 @@ type ToastInput = {
 	message: string;
 	requestId?: string;
 	durationMs?: number;
+	actionLabel?: string;
+	onAction?: () => void;
 };
 
 let nextToastId = 1;
@@ -39,6 +43,8 @@ export const showToast = (input: ToastInput) => {
 		message: input.message,
 		requestId: input.requestId,
 		durationMs: input.durationMs ?? 5000,
+		actionLabel: input.actionLabel,
+		onAction: input.onAction
 	};
 
 	toasts.push(toast);

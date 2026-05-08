@@ -25,6 +25,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		throw redirect(302, '/login');
 	}
 
+	const adminResult = await isAdminUser(locals.user.id);
+	const isAdmin = unwrapOrThrow(adminResult, locals.requestId);
+	if (!isAdmin) {
+		throw redirect(302, '/');
+	}
+
 	const conversationsResult = await getConversationSummaries(locals.user.id);
 	const conversations: ConversationSummary[] = unwrapOrThrow(conversationsResult, locals.requestId);
 	const requestedConversationId = url.searchParams.get('conversation');
@@ -39,9 +45,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		const historyResult = await getConversationHistory(locals.user.id, selectedConversation.id);
 		history = unwrapOrThrow(historyResult, locals.requestId);
 	}
-
-	const adminResult = await isAdminUser(locals.user.id);
-	const isAdmin = unwrapOrThrow(adminResult, locals.requestId);
 
 	const tokenUsage = conversations.reduce(
 		(
@@ -69,6 +72,12 @@ export const actions: Actions = {
 	createConversation: async ({ locals }) => {
 		if (!locals.user) {
 			throw redirect(302, '/login');
+		}
+
+		const adminResult = await isAdminUser(locals.user.id);
+		const isAdmin = unwrapOrThrow(adminResult, locals.requestId);
+		if (!isAdmin) {
+			throw redirect(302, '/');
 		}
 
 		const createdConversation = await createConversation(locals.user.id);

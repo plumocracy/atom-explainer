@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { appError } from './errors';
 import { err, ok, type ServerResult } from './result';
 
-const openRouter = new OpenRouter({
+export const openRouter = new OpenRouter({
 	apiKey: env.OPENROUTER_API_KEY,
 });
 

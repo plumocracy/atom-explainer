@@ -350,7 +350,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 
 		const userId = userResult.data.id;
-		const { message, conversationId, surface, simulation, guidedTour } = payload.data;
+		const { message, conversationId, surface, starterMode, simulation, guidedTour } = payload.data;
 		const userInputTokens = estimateUserInputTokens(message);
 
 		const conversation = conversationId
@@ -374,25 +374,30 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 					return conversationResult.data.conversation;
 				})();
-		const titlePromise = conversation.title ? null : generateConversationTitle(message);
+		const titlePromise = conversation.title || starterMode ? null : generateConversationTitle(message);
 
 		const touchResult = await touchConversation(conversation.id);
 		if (!touchResult.ok) {
 			throw touchResult.error;
 		}
 
-		const userMessageResult = await recordUserMessage({
-			userId,
-			conversationId: conversation.id,
-			message,
-			userInputTokens,
-			simulation,
-			model: CHAT_MODEL
-		});
-		if (!userMessageResult.ok) {
-			throw userMessageResult.error;
-		}
-		const userMessageId = userMessageResult.data;
+		const userMessageId = starterMode
+			? undefined
+			: await (async () => {
+					const userMessageResult = await recordUserMessage({
+						userId,
+						conversationId: conversation.id,
+						message,
+						userInputTokens,
+						simulation,
+						model: CHAT_MODEL
+					});
+					if (!userMessageResult.ok) {
+						throw userMessageResult.error;
+					}
+
+					return userMessageResult.data;
+				})();
 
 		const historyResult = await getConversationMessages(userId, conversation.id);
 		if (!historyResult.ok) {
@@ -405,7 +410,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			: undefined;
 		let preflightJudged: Awaited<ReturnType<typeof judgeTourStep>> | null = null;
 
-		if (guidedTour?.awaitingConfirmation && activeTourStep) {
+		if (!starterMode && guidedTour?.awaitingConfirmation && activeTourStep) {
 			const stream = new ReadableStream({
 				async start(controller) {
 					try {
@@ -490,7 +495,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return new Response(stream, { headers: CHAT_STREAM_HEADERS });
 		}
 
-		if (guidedTour && activeTourStep) {
+		if (!starterMode && guidedTour && activeTourStep) {
 			preflightJudged = await judgeTourStep({
 				step: activeTourStep,
 				userMessage: message,
@@ -549,7 +554,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					const completionStream = await createChatStream({
 						systemPrompt,
 						history,
-						message
+						message,
+						allowTools: starterMode !== 'assistant_intro'
 					});
 
 					const toolCalls = new ToolCallStreamAccumulator();

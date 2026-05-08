@@ -33,11 +33,13 @@ export const GuidedTourContextSchema = z.object({
 });
 
 export const ChatSurfaceSchema = z.enum(['orbital_page', 'dashboard']);
+export const ChatStarterModeSchema = z.enum(['assistant_intro']);
 
 export const ChatRequestSchema = z.object({
 	message: z.string().trim().min(1),
 	conversationId: z.string().uuid().optional(),
 	surface: ChatSurfaceSchema.default('orbital_page'),
+	starterMode: ChatStarterModeSchema.optional(),
 	simulation: ChatSimulationContextSchema,
 	guidedTour: GuidedTourContextSchema.optional()
 });
@@ -58,6 +60,7 @@ export type BohrSimulationValues = z.infer<typeof BohrSimulationValuesSchema>;
 export type ChatSimulationContext = z.infer<typeof ChatSimulationContextSchema>;
 export type GuidedTourContext = z.infer<typeof GuidedTourContextSchema>;
 export type ChatSurface = z.infer<typeof ChatSurfaceSchema>;
+export type ChatStarterMode = z.infer<typeof ChatStarterModeSchema>;
 
 export type TourSsePayload =
 	| {

@@ -29,7 +29,8 @@ describe('renderMarkdown', () => {
 	test('renders inline math with katex', () => {
 		const rendered = renderMarkdown('Probability is $\\phi^2$.');
 
-		expect(rendered).toContain('<span class="inline-math-chip">');
+		expect(rendered).toContain('<span class="inline-math-chip"');
+		expect(rendered).toContain('data-reveal-frames="6"');
 		expect(rendered).toContain('<span class="katex">');
 		expect(rendered).toContain('Probability is ');
 	});
@@ -37,6 +38,7 @@ describe('renderMarkdown', () => {
 	test('renders block math with katex display mode', () => {
 		const rendered = renderMarkdown('$$\n\\int_0^1 x^2 \\, dx\n$$');
 
+		expect(rendered).toContain('display-math-block');
 		expect(rendered).toContain('katex-display');
 		expect(rendered).toContain('mord');
 	});
@@ -68,7 +70,7 @@ Normalized:
 The total probability equals 1.`);
 
 		expect(rendered).toContain('<ul>');
-		expect(rendered).toContain('<span class="inline-math-chip">');
+		expect(rendered).toContain('<span class="inline-math-chip"');
 		expect(rendered).toContain('katex-display');
 		expect(rendered).toContain('Hamiltonian operator');
 		expect(rendered).not.toContain('<em>|');

@@ -93,6 +93,20 @@ export const createConversation = async (
 	}
 };
 
+export const deleteConversationForUser = async (
+	userId: string,
+	conversationId: string
+): Promise<ServerResult<void>> => {
+	try {
+		await db
+			.delete(conversations)
+			.where(and(eq(conversations.userId, userId), eq(conversations.id, conversationId)));
+		return ok(undefined);
+	} catch (error) {
+		return err(appError.internal('Could not delete conversation', { cause: error }));
+	}
+};
+
 export const getOrCreateConversation = async (
 	userId: string
 ): Promise<ServerResult<ConversationSelect>> => {

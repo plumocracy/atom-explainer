@@ -7,7 +7,8 @@ vi.mock('@openrouter/sdk', () => ({
 	}
 }));
 
-import { extractJsonObject, mapOpenRouterError, stringifyList } from './tour-judge';
+import { mapOpenRouterError } from '$lib/server/openrouter';
+import { extractJsonObject, stringifyList } from './tour-judge';
 
 describe('tour-judge helpers', () => {
 	test('mapOpenRouterError maps status codes', () => {

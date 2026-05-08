@@ -1,11 +1,6 @@
-import { OpenRouter } from '@openrouter/sdk';
-import { env } from '$env/dynamic/private';
 import { appError } from '$lib/server/errors';
+import { openRouter } from '$lib/server/openrouter';
 import { err, ok, type ServerResult } from '$lib/server/result';
-
-const openRouter = new OpenRouter({
-	apiKey: env.OPENROUTER_API_KEY
-});
 
 export const normalizeTitle = (value: string): string => {
 	const normalized = value.trim().replace(/^['"`]+|['"`]+$/g, '');

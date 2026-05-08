@@ -1,14 +1,9 @@
-import { OpenRouter } from '@openrouter/sdk';
-import { env } from '$env/dynamic/private';
 import { z } from 'zod';
 import { appError } from '$lib/server/errors';
+import { mapOpenRouterError, openRouter } from '$lib/server/openrouter';
 import { err, ok, type ServerResult } from '$lib/server/result';
 import type { ConversationMessage } from '$lib/server/conversation';
 import type { TourStep } from '$lib/tours/tour-schema';
-
-const openRouter = new OpenRouter({
-	apiKey: env.OPENROUTER_API_KEY
-});
 
 const TourJudgeResultSchema = z.object({
 	messageType: z.enum(['question', 'answer_attempt']),
@@ -27,24 +22,6 @@ const TourConfirmationResultSchema = z.object({
 });
 
 type TourConfirmationResult = z.infer<typeof TourConfirmationResultSchema>;
-
-type OpenRouterErrorWithStatus = Error & { statusCode?: number };
-
-export const mapOpenRouterError = (error: OpenRouterErrorWithStatus) => {
-	if (error.statusCode === 401) {
-		return appError.unauthorized('Invalid API key');
-	}
-
-	if (error.statusCode === 429) {
-		return appError.rateLimited('Rate limited - try again later');
-	}
-
-	if (error.statusCode === 503) {
-		return appError.internal('Model unavailable', { cause: error });
-	}
-
-	return appError.internal('Unexpected model error', { cause: error });
-};
 
 export const stringifyList = (values: string[]): string => (values.length ? values.join(', ') : 'none');
 

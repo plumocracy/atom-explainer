@@ -6,7 +6,6 @@
 	import {
 		orbitalCameraState,
 		orbitalViewState,
-		setPositiveXYCrossSectionHidden,
 		simulationValues
 	} from '$lib/chat.svelte';
 
@@ -187,23 +186,16 @@
 	let lastLodCameraAzimuth = cameraAzimuth;
 	let lastLodCameraElevation = cameraElevation;
 	let lastLodCameraRadius = cameraRadius;
+	let lastAutoFitRadiusForJob = 0;
 
 	let isDraggingCamera = false;
 	let activePointerId: number | null = null;
 	let lastPointerX = 0;
 	let lastPointerY = 0;
 
-	let nMax = 5;
-	let nMin = 1;
-	const nChoices = Array.from({ length: nMax - nMin + 1 }, (_, idx) => nMin + idx);
-
 	let n = $derived(simulationValues.n);
 	let l = $derived(simulationValues.l);
 	let m = $derived(simulationValues.m);
-	let lChoices = $derived(Array.from({ length: simulationValues.n }, (_, idx) => idx));
-	let mChoices = $derived(
-		Array.from({ length: simulationValues.l * 2 + 1 }, (_, idx) => idx - simulationValues.l)
-	);
 	let hidePositiveQuadrant = $derived(orbitalViewState.hidePositiveXYCrossSection);
 
 	// Clamp l into [0, n-1] when n changes.
@@ -502,6 +494,44 @@ void main() {
 			x: Math.cos(cameraAzimuth) * horizontalRadius,
 			y: Math.sin(cameraElevation) * cameraRadius,
 			z: Math.sin(cameraAzimuth) * horizontalRadius
+		};
+	}
+
+	function estimateCompressedCloudRadius(points: Float32Array) {
+		let maxRadius = 0;
+		for (let idx = 0; idx < points.length; idx += 3) {
+			const rawRadius = Math.hypot(points[idx] ?? 0, points[idx + 1] ?? 0, points[idx + 2] ?? 0);
+			const compressedRadius = rawRadius / (1.0 + RADIAL_COMPRESSION * rawRadius) + BASE_SPHERE_RADIUS;
+			if (compressedRadius > maxRadius) {
+				maxRadius = compressedRadius;
+			}
+		}
+
+		return maxRadius;
+	}
+
+	function maybeAutoFitCamera(points: Float32Array, jobId: number) {
+		if (jobId !== currentJobId || isDraggingCamera) {
+			return;
+		}
+
+		const cloudRadius = estimateCompressedCloudRadius(points);
+		const fitRadius = clamp((cloudRadius / Math.sin(Math.PI / 8)) * 1.12, minCameraRadius, maxCameraRadius);
+		if (fitRadius <= cameraRadius + 1.0 || fitRadius <= lastAutoFitRadiusForJob + 0.4) {
+			return;
+		}
+
+		lastAutoFitRadiusForJob = fitRadius;
+		activeCameraTween = {
+			startAtMs: performance.now(),
+			durationMs: 520,
+			startAzimuth: cameraAzimuth,
+			targetAzimuth: cameraAzimuth,
+			azimuthDelta: 0,
+			startElevation: cameraElevation,
+			targetElevation: cameraElevation,
+			startRadius: cameraRadius,
+			targetRadius: fitRadius
 		};
 	}
 
@@ -1243,6 +1273,7 @@ void main() {
 			pendingRefinement: null,
 			jobId
 		};
+		maybeAutoFitCamera(points, jobId);
 		repartitionSlotLods(slot, slot.prevPoints, slot.nextPoints, slot.flow, slot.prevPoints, eye);
 		return slot;
 	}
@@ -1255,6 +1286,7 @@ void main() {
 		receivedAtMs: number,
 		jobId: number
 	) {
+		maybeAutoFitCamera(newPoints, jobId);
 		enqueueSlotSnapshot(
 			slot,
 			{
@@ -1290,6 +1322,7 @@ void main() {
 		slot.activePrevSnapshotTimeMs = receivedAtMs;
 		slot.activeNextSnapshotTimeMs = receivedAtMs;
 		slot.jobId = jobId;
+		maybeAutoFitCamera(points, jobId);
 		repartitionSlotLods(
 			slot,
 			snapshot.points,
@@ -1478,6 +1511,7 @@ void main() {
 
 		currentJobId++;
 		pendingTransitionTasks = [];
+		lastAutoFitRadiusForJob = 0;
 
 		worker_state = STATUS_IDLE;
 		worker.postMessage({
@@ -1491,18 +1525,6 @@ void main() {
 			jobId: currentJobId
 		});
 	}
-
-	const setN = (value: number) => {
-		simulationValues.n = value;
-	};
-
-	const setL = (value: number) => {
-		simulationValues.l = value;
-	};
-
-	const setM = (value: number) => {
-		simulationValues.m = value;
-	};
 
 	const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 	const persistCameraPose = () => {
@@ -1806,76 +1828,6 @@ void main() {
 </script>
 
 <div class="flex h-full min-h-0 w-full flex-col overflow-hidden text-[var(--color-exhibit-paper)]">
-	<div class="z-20 bg-[var(--museum-surface)] px-3 py-2 md:px-4 md:py-2.5">
-		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-[rgba(44,61,75,0.95)]">
-			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
-					>n</span
-				>
-				{#each nChoices as value}
-					<button
-						type="button"
-						class="rounded border px-1.5 py-0.5 text-[11px] leading-4 font-medium transition hover:cursor-pointer {simulationValues.n ===
-						value
-							? 'border-[rgba(44,61,75,0.95)] bg-[rgba(44,61,75,0.95)] text-[rgba(243,229,205,0.98)]'
-							: 'border-[rgba(44,61,75,0.68)] bg-transparent text-[rgba(44,61,75,0.95)] hover:bg-[rgba(44,61,75,0.1)]'}"
-						onclick={() => setN(value)}
-					>
-						{value}
-					</button>
-				{/each}
-			</div>
-
-			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
-					>l</span
-				>
-				{#each lChoices as value}
-					<button
-						type="button"
-						class="rounded border px-1.5 py-0.5 text-[11px] leading-4 font-medium transition hover:cursor-pointer {simulationValues.l ===
-						value
-							? 'border-[rgba(44,61,75,0.95)] bg-[rgba(44,61,75,0.95)] text-[rgba(243,229,205,0.98)]'
-							: 'border-[rgba(44,61,75,0.68)] bg-transparent text-[rgba(44,61,75,0.95)] hover:bg-[rgba(44,61,75,0.1)]'}"
-						onclick={() => setL(value)}
-					>
-						{value}
-					</button>
-				{/each}
-			</div>
-
-			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase"
-					>m</span
-				>
-				{#each mChoices as value}
-					<button
-						type="button"
-						class="rounded border px-1.5 py-0.5 text-[11px] leading-4 font-medium transition hover:cursor-pointer {simulationValues.m ===
-						value
-							? 'border-[rgba(44,61,75,0.95)] bg-[rgba(44,61,75,0.95)] text-[rgba(243,229,205,0.98)]'
-							: 'border-[rgba(44,61,75,0.68)] bg-transparent text-[rgba(44,61,75,0.95)] hover:bg-[rgba(44,61,75,0.1)]'}"
-						onclick={() => setM(value)}
-					>
-						{value}
-					</button>
-				{/each}
-			</div>
-
-			<div class="flex flex-wrap items-center gap-1.5">
-				<button
-					type="button"
-					class="rounded border px-2 py-0.5 text-[11px] leading-4 font-medium transition hover:cursor-pointer {hidePositiveQuadrant
-						? 'border-[rgba(44,61,75,0.95)] bg-[rgba(44,61,75,0.95)] text-[rgba(243,229,205,0.98)]'
-						: 'border-[rgba(44,61,75,0.68)] bg-transparent text-[rgba(44,61,75,0.95)] hover:bg-[rgba(44,61,75,0.1)]'}"
-					onclick={() => setPositiveXYCrossSectionHidden(!hidePositiveQuadrant)}
-				>
-					{hidePositiveQuadrant ? 'Show +X/+Y cross section' : 'Hide +X/+Y cross section'}
-				</button>
-			</div>
-		</div>
-	</div>
-
 	<div class="relative min-h-0 flex-1">
 		<div
 			class="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_14%_18%,rgba(126,255,163,0.14),transparent_40%),radial-gradient(circle_at_78%_12%,rgba(214,255,228,0.05),transparent_32%),linear-gradient(135deg,#081017_0%,#0e1b25_60%,#142431_100%)]"

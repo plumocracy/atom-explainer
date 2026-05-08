@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { resolve } from '$app/paths';
+	import Icon from '@iconify/svelte';
 	import ResponseCard from '$lib/components/ResponseCard.svelte';
 	import { createChatMessage, type Message } from '$lib/chat.svelte';
 	import type { PageProps } from './$types';
@@ -28,6 +29,7 @@
 	>([]);
 	let searchLoading = $state(false);
 	let searchError = $state<string | null>(null);
+	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const mapHistoryToThreadMessages = (messages: typeof data.history): Message[] =>
 		messages.map((message) =>
@@ -110,11 +112,48 @@
 		void scrollThreadToBottom();
 	});
 
+	$effect(() => {
+		const query = searchInput.trim();
+
+		if (searchDebounceTimer) {
+			clearTimeout(searchDebounceTimer);
+		}
+
+		if (!query) {
+			searchQuery = '';
+			searchResults = [];
+			searchError = null;
+			searchLoading = false;
+			return;
+		}
+
+		searchDebounceTimer = setTimeout(() => {
+			void searchHistory();
+		}, 250);
+
+		return () => {
+			if (searchDebounceTimer) {
+				clearTimeout(searchDebounceTimer);
+			}
+		};
+	});
+
 	const clearSearch = () => {
 		searchInput = '';
 		searchQuery = '';
 		searchResults = [];
 		searchError = null;
+	};
+
+	const closeConversationReview = () => {
+		selectedConversationId = null;
+		history = [];
+		replaceThreadMessages([]);
+		historyError = null;
+		highlightedMessageId = null;
+		const nextUrl = new URL(window.location.href);
+		nextUrl.searchParams.delete('conversation');
+		window.history.replaceState(window.history.state, '', nextUrl);
 	};
 
 	const selectConversation = async (conversationId: string, messageId?: string) => {
@@ -210,87 +249,147 @@
 </script>
 
 <div class="museum-shell">
-	<section class="museum-frame flex min-h-0 flex-col p-3 md:p-4 lg:p-5">
+	<section class="museum-frame flex min-h-0 flex-col p-2 sm:p-3 md:p-4 lg:p-5">
 		<header
-			class="border-b border-[var(--museum-stroke)] px-1 py-4 md:px-2 md:py-5"
+			class="border-b border-[var(--museum-stroke)] px-1 py-3 sm:py-4 md:px-2 md:py-5"
 		>
-			<div class="flex flex-wrap items-center justify-between gap-4">
+			<div class="flex flex-col gap-3">
 				<div>
-					<p class="museum-kicker">Account Overview</p>
-					<h1 class="museum-title mt-1">Conversation Dashboard</h1>
-					<p class="mt-1 text-sm text-[var(--museum-subtext)]">
+					<h1 class="museum-title text-[1.55rem] sm:text-[1.85rem] md:text-[clamp(1.6rem,2vw+1rem,2.8rem)]">
+						Conversation Dashboard
+					</h1>
+					<p class="mt-1 max-w-2xl text-xs leading-5 text-[var(--museum-subtext)] sm:text-sm sm:leading-6">
 						Track token usage and review your recent assistant sessions.
 					</p>
 				</div>
-				<div class="flex flex-wrap items-center gap-2">
-					{#if data.isAdmin}
-						<a href={resolve('/feedback')} class="museum-button rounded-full px-4 py-2 text-sm font-semibold"
-							>Feedback</a
-						>
-					{/if}
-					<a href={resolve('/')} class="museum-button rounded-full px-4 py-2 text-sm font-semibold"
-						>Back to exhibit</a
-					>
-				</div>
-			</div>
-			<form
-				class="mt-4 flex flex-col gap-2 md:flex-row"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void searchHistory();
-				}}
-				>
+				<div class="flex items-center gap-2">
 					<input
-					type="search"
-					bind:value={searchInput}
-					placeholder="Search all messages"
-					class="w-full rounded-full border border-[var(--museum-stroke)] bg-white/70 px-4 py-2 text-sm outline-none transition focus:border-[var(--museum-stroke-strong)]"
-				/>
-				<div class="flex gap-2">
-					<button
-						type="submit"
-						class="museum-button rounded-full px-4 py-2 text-sm font-semibold"
-						disabled={searchLoading}
-					>
-						{searchLoading ? 'Searching...' : 'Search'}
-					</button>
+						type="search"
+						bind:value={searchInput}
+						placeholder="Search all messages"
+						class="min-w-0 flex-1 rounded-full border border-[var(--museum-stroke)] bg-white/70 px-4 py-2 text-sm outline-none transition focus:border-[var(--museum-stroke-strong)]"
+					/>
 					{#if hasActiveSearch}
 						<button
 							type="button"
-							class="museum-button rounded-full px-3 py-1.5 text-xs font-semibold"
+							class="museum-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
 							onclick={clearSearch}
+							aria-label="Clear search"
+							title="Clear search"
 						>
-							Clear search
+							<Icon icon="material-symbols:close-rounded" class="text-lg" />
 						</button>
 					{/if}
+					{#if data.isAdmin}
+						<a
+							href={resolve('/feedback')}
+							class="museum-button inline-flex h-10 w-10 items-center justify-center rounded-full"
+							aria-label="Feedback"
+							title="Feedback"
+						>
+							<Icon icon="material-symbols:forum-outline-rounded" class="text-lg" />
+						</a
+						>
+					{/if}
+					<a
+						href={resolve('/')}
+						class="museum-button inline-flex h-10 w-10 items-center justify-center rounded-full"
+						aria-label="Back to exhibit"
+						title="Back to exhibit"
+					>
+						<Icon icon="material-symbols:home-outline-rounded" class="text-lg" />
+					</a
+					>
 				</div>
-			</form>
+			</div>
 		</header>
 
-		<div
-			class="grid min-h-0 flex-1 items-stretch overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]"
-		>
-			<aside class="min-h-0 border-b border-[var(--museum-stroke)] lg:border-r lg:border-b-0">
-				<section
-					class="flex h-full min-h-0 flex-col overflow-hidden px-1 py-4 md:px-2 md:py-5"
-				>
+		<div class="flex min-h-0 flex-1 flex-col lg:hidden">
+			{#if selectedConversationId && activeConversation}
+				<section class="flex h-full min-h-0 flex-col px-1 py-3">
+					<div class="shrink-0 flex items-center justify-between gap-3 border-b border-[var(--museum-stroke)] pb-3">
+						<button
+							type="button"
+							class="museum-button inline-flex h-10 w-10 items-center justify-center rounded-full"
+							onclick={closeConversationReview}
+							aria-label="Close conversation review"
+						>
+							<Icon icon="material-symbols:close-rounded" class="text-lg" />
+						</button>
+						<a
+							href={`${resolve('/')}?conversation=${encodeURIComponent(selectedConversationId)}&openChat=1`}
+							class="museum-button inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold"
+						>
+							Continue on home page
+						</a>
+					</div>
+
+					{#if historyLoading}
+						<p class="mt-4 text-sm text-[var(--museum-subtext)]">Loading conversation history...</p>
+					{:else if historyError}
+						<p class="mt-4 text-sm text-[rgba(168,58,46,0.98)]">{historyError}</p>
+					{:else}
+						<div bind:this={messagesViewport} class="mt-4 min-h-0 flex-1 space-y-2.5 overflow-y-auto">
+							{#if threadMessages.length === 0}
+								<p class="text-sm text-[var(--museum-subtext)]">No messages recorded for this conversation.</p>
+							{:else}
+								{#each threadMessages as msg, idx (`${msg.id}:${idx}`)}
+									<div id={msg.serverId ? `dashboard-message-${msg.serverId}` : undefined}>
+										<ResponseCard message={msg} />
+									</div>
+								{/each}
+							{/if}
+						</div>
+					{/if}
+				</section>
+			{:else}
+				<section class="flex h-full min-h-0 flex-col px-1 py-3">
 					<div class="shrink-0 flex items-center justify-between gap-3">
-						<h2 class="text-xl">Conversations</h2>
+						<h2 class="text-lg">Conversation history</h2>
 						<form method="POST" action="?/createConversation">
 							<button
 								type="submit"
-								class="museum-button rounded-full px-3 py-1.5 text-xs font-semibold"
+								class="museum-button inline-flex justify-center rounded-full px-3 py-2 text-xs font-semibold"
 							>
 								New conversation
 							</button>
 						</form>
 					</div>
-					{#if conversations.length === 0}
-						<p class="mt-3 text-sm text-[var(--museum-subtext)]">
-							No conversations yet. Start chatting to populate this dashboard.
-						</p>
-					{:else}
-						<div class="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+
+					<div class="mt-3 min-h-0 flex-1 overflow-y-auto">
+						{#if hasActiveSearch}
+							{#if searchError}
+								<p class="text-sm text-[rgba(168,58,46,0.98)]">{searchError}</p>
+							{:else if searchLoading}
+								<p class="text-sm text-[var(--museum-subtext)]">Searching your message history...</p>
+							{:else if searchResults.length === 0}
+								<p class="text-sm text-[var(--museum-subtext)]">No messages matched `{searchQuery}`.</p>
+							{:else}
+								<ul class="space-y-2.5">
+									{#each searchResults as result (result.id)}
+										<li>
+											<button
+												type="button"
+												class="w-full rounded-xl border border-[var(--museum-stroke)] bg-white/45 px-4 py-3 text-left transition hover:cursor-pointer hover:bg-white/65"
+												onclick={async () => {
+													clearSearch();
+													await selectConversation(result.conversationId, result.id);
+												}}
+											>
+												<div class="flex flex-col gap-1">
+													<p class="font-semibold">{result.conversationTitle || 'Untitled conversation'}</p>
+													<p class="text-xs text-[var(--museum-subtext)]">{formatDate(result.createdAt)}</p>
+												</div>
+												<p class="mt-1 text-[11px] tracking-[0.14em] text-[var(--museum-subtext)] uppercase">{result.role}</p>
+												<p class="mt-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] break-words">{getSearchSnippet(result.content)}</p>
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						{:else if conversations.length === 0}
+							<p class="text-sm text-[var(--museum-subtext)]">No conversations yet. Start chatting to populate this dashboard.</p>
+						{:else}
 							<ul class="space-y-2">
 								{#each conversations as conversation (conversation.id)}
 									<li>
@@ -303,7 +402,62 @@
 													void selectConversation(conversation.id);
 												}}
 												disabled={historyLoading && conversation.id === selectedConversationId}
-												class="block w-full rounded-xl border px-3 py-2.5 text-left text-sm transition hover:cursor-pointer {conversation.id ===
+												class="block w-full rounded-xl border px-3 py-3 text-left text-sm transition hover:cursor-pointer {conversation.id ===
+												selectedConversationId
+													? 'border-[var(--museum-stroke-strong)] bg-white/70'
+													: 'border-[var(--museum-stroke)] bg-white/35 hover:bg-white/55'}"
+											>
+												<p class="font-semibold">{conversation.title || 'Untitled conversation'}</p>
+												<p class="mt-1 text-xs text-[var(--museum-subtext)]">{conversation.messageCount} messages • updated {formatDate(conversation.updatedAt)}</p>
+												<p class="mt-1.5 text-xs text-[var(--museum-subtext)]">Input <span class="font-semibold tabular-nums text-[var(--museum-text)]">{conversation.userInputTokens}</span> • Output <span class="font-semibold tabular-nums text-[var(--museum-text)]">{conversation.completionTokens}</span></p>
+											</button>
+										</form>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+				</section>
+			{/if}
+		</div>
+
+		<div
+			class="hidden min-h-0 flex-1 items-stretch overflow-hidden lg:grid lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]"
+		>
+			<aside class="min-h-0 border-b border-[var(--museum-stroke)] lg:border-r lg:border-b-0">
+				<section
+					class="flex h-full min-h-0 flex-col overflow-hidden px-1 py-3 sm:py-4 md:px-2 md:py-5"
+				>
+					<div class="shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+						<h2 class="text-xl">Conversations</h2>
+						<form method="POST" action="?/createConversation">
+							<button
+								type="submit"
+								class="museum-button inline-flex w-full justify-center rounded-full px-3 py-2 text-xs font-semibold sm:w-auto sm:py-1.5"
+							>
+								New conversation
+							</button>
+						</form>
+					</div>
+					{#if conversations.length === 0}
+						<p class="mt-3 text-sm text-[var(--museum-subtext)]">
+							No conversations yet. Start chatting to populate this dashboard.
+						</p>
+					{:else}
+						<div class="mt-3 min-h-0 flex-1 overflow-y-auto sm:pr-1">
+							<ul class="space-y-2">
+								{#each conversations as conversation (conversation.id)}
+									<li>
+										<form method="GET" action={resolve('/dashboard')}>
+											<input type="hidden" name="conversation" value={conversation.id} />
+											<button
+												type="submit"
+												onclick={(event) => {
+													event.preventDefault();
+													void selectConversation(conversation.id);
+												}}
+												disabled={historyLoading && conversation.id === selectedConversationId}
+												class="block w-full rounded-xl border px-3 py-3 text-left text-sm transition hover:cursor-pointer {conversation.id ===
 												selectedConversationId
 													? 'border-[var(--museum-stroke-strong)] bg-white/70'
 													: 'border-[var(--museum-stroke)] bg-white/35 hover:bg-white/55'}"
@@ -329,10 +483,10 @@
 			</aside>
 
 			<section
-				class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden px-1 py-4 md:px-5 md:py-5"
+				class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden px-1 py-3 sm:py-4 md:px-5 md:py-5"
 			>
 				{#if hasActiveSearch}
-					<div class="min-h-0 flex-1 overflow-y-auto pr-1">
+					<div class="min-h-0 flex-1 overflow-y-auto sm:pr-1">
 						{#if searchError}
 							<p class="text-sm text-[rgba(168,58,46,0.98)]">{searchError}</p>
 						{:else if searchLoading}
@@ -376,15 +530,15 @@
 				{:else}
 					<div class="flex min-h-0 flex-1 flex-col">
 						<div
-							class="shrink-0 flex flex-wrap items-start justify-between gap-3 border-b border-[var(--museum-stroke)] pb-3"
+							class="shrink-0 flex flex-col gap-3 border-b border-[var(--museum-stroke)] pb-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between"
 						>
 							<div>
-								<h2 class="text-2xl">{activeConversation.title || 'Untitled conversation'}</h2>
+								<h2 class="text-xl sm:text-2xl">{activeConversation.title || 'Untitled conversation'}</h2>
 								<p class="mt-0.5 text-sm text-[var(--museum-subtext)]">
 									Created {formatDate(activeConversation.createdAt)}
 								</p>
 							</div>
-							<div class="text-sm text-[var(--museum-subtext)]">
+							<div class="text-sm text-[var(--museum-subtext)] sm:text-right">
 								<p>
 									User input: <span class="font-semibold tabular-nums"
 										>{activeConversation.userInputTokens}</span
@@ -405,7 +559,7 @@
 						{:else}
 							<div
 								bind:this={messagesViewport}
-								class="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+								class="mt-4 min-h-0 flex-1 space-y-2.5 overflow-y-auto sm:space-y-3 sm:pr-1"
 							>
 								{#if threadMessages.length === 0}
 									<p class="text-sm text-[var(--museum-subtext)]">
@@ -425,7 +579,7 @@
 								<div class="pt-4">
 									<a
 										href={`${resolve('/')}?conversation=${encodeURIComponent(selectedConversationId ?? '')}&openChat=1`}
-										class="museum-button inline-flex rounded-full px-4 py-2 text-sm font-semibold"
+										class="museum-button inline-flex w-full justify-center rounded-full px-4 py-2.5 text-sm font-semibold sm:w-auto sm:py-2"
 									>
 										Continue This Conversation On Home Page
 									</a>

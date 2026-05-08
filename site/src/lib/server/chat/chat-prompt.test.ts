@@ -85,5 +85,8 @@ describe('chat-prompt helpers', () => {
 			'This rule also applies to short symbols mentioned in prose'
 		);
 		expect(buildSystemPrompt(simulation, 'orbital_page', false)).toContain('Do not emit malformed Markdown around math');
+		expect(buildSystemPrompt(simulation, 'orbital_page', false)).toContain(
+			'do not stop at 80 percent of the idea'
+		);
 	});
 });

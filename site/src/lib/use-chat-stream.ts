@@ -185,10 +185,16 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 	} = options;
 	let inFlight = false;
 
-	const startMessageStream = (message: string, useSeededPending = false): void => {
+	const startMessageStream = (
+		message: string,
+		options?: { useSeededPending?: boolean; omitUserMessage?: boolean; extraBody?: Record<string, unknown> }
+	): void => {
 		if (inFlight) {
 			return;
 		}
+
+		const useSeededPending = options?.useSeededPending ?? false;
+		const omitUserMessage = options?.omitUserMessage ?? false;
 
 		inFlight = true;
 		setLoading(true);
@@ -199,13 +205,15 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		if (useSeededPending) {
 			botMessageIdx = chatMessages.length - 1;
 		} else {
-			chatMessages.push(
-				createChatMessage({
-					role: 'user',
-					content: message,
-					live: false
-				})
-			);
+			if (!omitUserMessage) {
+				chatMessages.push(
+					createChatMessage({
+						role: 'user',
+						content: message,
+						live: false
+					})
+				);
+			}
 
 			chatMessages.push(
 				createChatMessage({
@@ -276,6 +284,7 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 				body: JSON.stringify({
 					message,
 					...(getExtraBody?.() ?? {}),
+					...(options?.extraBody ?? {}),
 					simulation,
 					guidedTour:
 						guidedTourState.status === 'running' &&
@@ -404,12 +413,16 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 	};
 
 	const sendMessage = (message: string): void => {
-		startMessageStream(message, false);
+		startMessageStream(message);
 	};
 
 	const sendSeededMessage = (message: string): void => {
-		startMessageStream(message, true);
+		startMessageStream(message, { useSeededPending: true });
 	};
 
-	return { sendMessage, sendSeededMessage };
+	const sendAssistantInitiatedMessage = (message: string, extraBody?: Record<string, unknown>): void => {
+		startMessageStream(message, { omitUserMessage: true, extraBody });
+	};
+
+	return { sendMessage, sendSeededMessage, sendAssistantInitiatedMessage };
 };

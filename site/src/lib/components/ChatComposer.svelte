@@ -44,9 +44,9 @@
 	};
 </script>
 
-<div class="border-t border-[var(--museum-stroke)] px-4 py-3 md:px-5">
+<div class="border-t border-[var(--museum-stroke)] px-3 py-3 md:px-5">
 	<div
-		class="flex w-full items-end gap-3 rounded-xl border border-[var(--museum-stroke)] bg-[rgba(255,255,255,0.55)] p-3"
+		class="flex w-full items-end gap-2 rounded-xl border border-[var(--museum-stroke)] bg-[rgba(255,255,255,0.55)] p-2.5 md:gap-3 md:p-3"
 	>
 		<textarea
 			bind:this={textareaEl}
@@ -62,7 +62,7 @@
 			type="button"
 			onclick={submit}
 			disabled={loading || !value.trim()}
-			class="museum-button inline-flex h-11 w-11 items-center justify-center rounded-full text-xl disabled:cursor-not-allowed disabled:opacity-50"
+			class="museum-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg disabled:cursor-not-allowed disabled:opacity-50 md:h-11 md:w-11 md:text-xl"
 		>
 			{#if loading}
 				<Icon icon="eos-icons:atom-electron" class="animate-pulse text-[var(--museum-accent)]" />
