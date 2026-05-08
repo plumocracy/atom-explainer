@@ -6,6 +6,7 @@ import Star from '@lucide/svelte/icons/star';
 import ThumbsDown from '@lucide/svelte/icons/thumbs-down';
 import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
 import Trash2 from '@lucide/svelte/icons/trash-2';
+import X from '@lucide/svelte/icons/x';
 	import {
 		applyToolCallMessages,
 		bohrSimulationValues,
@@ -1175,7 +1176,17 @@ import Trash2 from '@lucide/svelte/icons/trash-2';
 		{/if}
 	</div>
 {:else}
-	<ChatSignInPrompt onSignIn={() => goto(resolve('/login'))} />
+	<div class="relative h-full w-full">
+		<button
+			type="button"
+			class="absolute right-3 top-3 z-10 rounded-full p-2 text-xl text-[var(--museum-subtext)] hover:cursor-pointer hover:bg-[rgba(44,61,75,0.06)]"
+			onclick={do_close}
+			aria-label="Close commentary panel"
+		>
+			<X />
+		</button>
+		<ChatSignInPrompt onSignIn={() => goto(resolve('/login'))} />
+	</div>
 {/if}
 
 <style>

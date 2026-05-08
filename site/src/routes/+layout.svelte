@@ -26,6 +26,8 @@
 		rel="stylesheet"
 		href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
 	/>
+
+	<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
 </svelte:head>
 
 <div class="initial-load-shell">

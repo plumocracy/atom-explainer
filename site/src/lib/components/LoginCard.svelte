@@ -1,5 +1,5 @@
 <script lang="ts">
-import ArrowRight from '@lucide/svelte/icons/arrow-right';
+	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import { signIn, signOut, type Provider } from '$lib/auth-client';
 	import { showErrorToast } from '$lib/toast.svelte';
 
@@ -11,14 +11,14 @@ import ArrowRight from '@lucide/svelte/icons/arrow-right';
 			iconName: 'simple-icons:github',
 			ariaLabel: 'login with github',
 			label: 'Continue with GitHub',
-			note: 'Best for contributors and code review sessions.'
+			note: ''
 		},
 		{
 			providerName: 'google' as Provider,
 			iconName: 'simple-icons:google',
 			ariaLabel: 'login with google',
 			label: 'Continue with Google',
-			note: 'Use your existing academic or personal profile.'
+			note: ''
 		}
 	];
 
@@ -43,8 +43,8 @@ import ArrowRight from '@lucide/svelte/icons/arrow-right';
 					<p class="museum-kicker">Sign In</p>
 					<h2 class="museum-title mt-3 text-[2.2rem] md:text-[2.5rem]">Choose your entrance</h2>
 					<p class="mt-3 text-sm leading-6 text-[var(--museum-subtext)] md:text-[0.98rem]">
-						Use an existing account to continue into the gallery. Your provider is only used to
-						identify your saved sessions.
+						Use an existing account to continue. Your provider is only used to identify your saved
+						sessions.
 					</p>
 
 					<div class="mt-8 grid gap-3 sm:grid-cols-3">
@@ -126,10 +126,6 @@ import ArrowRight from '@lucide/svelte/icons/arrow-right';
 							Sign in failed: {errorMessage}
 						</p>
 					{/if}
-
-					<p class="mt-6 text-xs leading-5 text-[var(--museum-subtext)]">
-						By continuing, you are entering the archived experience for this installation.
-					</p>
 				</article>
 			</div>
 		</section>
@@ -143,8 +139,7 @@ import ArrowRight from '@lucide/svelte/icons/arrow-right';
 				<p class="museum-kicker">Signed In</p>
 				<h1 class="museum-title mt-3">Welcome back{user.name ? `, ${user.name}` : ''}</h1>
 				<p class="mt-4 text-sm leading-6 text-[var(--museum-subtext)] md:text-[0.98rem]">
-					This installation is already registered to your current session. Sign out if you want to
-					enter under a different account.
+					You are already signed in. Sign out if you want to use a different account.
 				</p>
 				<div
 					class="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-[var(--museum-subtext)]"

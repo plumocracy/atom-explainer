@@ -12,7 +12,7 @@ export default defineConfig({
 			allow: [resolve(__dirname, 'orbital-math/pkg'), resolve(__dirname, 'src')]
 		}
 	},
-	plugins: [tailwindcss(), wasm(), topLevelAwait(), sveltekit()],
+	plugins: [tailwindcss(), wasm(), sveltekit()],
 	resolve: {
 		alias: {
 			'@orbital': resolve(__dirname, './orbital-math/pkg')
