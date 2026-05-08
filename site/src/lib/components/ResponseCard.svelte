@@ -2,13 +2,33 @@
 	import { browser } from '$app/environment';
 	import { applyChatButton, getChatButtonLabel } from '$lib/chat.svelte';
 	import type { Message } from '$lib/chat.svelte';
-	import { renderMarkdown } from '$lib/render_markdown';
 	import { getRevealFrames, isMathRevealRoot } from '$lib/render_reveal';
 	import { findStableMarkdownBoundary } from '$lib/streaming_markdown';
-	import { ThumbsDown, ThumbsUp } from '@lucide/svelte';
+import ThumbsDown from '@lucide/svelte/icons/thumbs-down';
+import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
 	import { fade } from 'svelte/transition';
 	import StandingWaveCanvas from './StandingWaveCanvas.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
+
+	type RenderMarkdownFn = (source: string) => string;
+
+	let renderMarkdownFn: RenderMarkdownFn | null = null;
+	let rendererLoad: Promise<void> | null = null;
+
+	const ensureRenderer = (): Promise<void> => {
+		if (!rendererLoad) {
+			rendererLoad = (async () => {
+				const [mod] = await Promise.all([
+					import('$lib/render_markdown'),
+					import('katex/dist/katex.min.css')
+				]);
+				renderMarkdownFn = mod.renderMarkdown;
+			})();
+		}
+		return rendererLoad;
+	};
+
+	let renderedAssistantHtml = $state('');
 
 	let {
 		message,
@@ -270,9 +290,29 @@
 		}
 	});
 
-	const renderedAssistantHtml = $derived(
-		message.role === 'assistant' ? renderMarkdown(assistantSource) : ''
-	);
+	$effect(() => {
+		const source = assistantSource;
+		if (message.role !== 'assistant' || !source) {
+			renderedAssistantHtml = '';
+			return;
+		}
+
+		if (renderMarkdownFn) {
+			renderedAssistantHtml = renderMarkdownFn(source);
+			return;
+		}
+
+		let cancelled = false;
+		ensureRenderer().then(() => {
+			if (!cancelled && renderMarkdownFn) {
+				renderedAssistantHtml = renderMarkdownFn(assistantSource);
+			}
+		});
+
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	$effect(() => {
 		if (!browser || message.role !== 'assistant' || !assistantContainer) {

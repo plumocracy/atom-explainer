@@ -23,10 +23,10 @@ describe('render reveal classification', () => {
 	});
 
 	test('reads reveal-frame metadata from rendered elements', () => {
-		const element = { dataset: { revealFrames: '12' } } as HTMLElement;
+		const element = { dataset: { revealFrames: '12' } } as unknown as HTMLElement;
 		expect(getRevealFrames(element)).toBe(12);
 
-		const fallback = { dataset: {} } as HTMLElement;
+		const fallback = { dataset: {} } as unknown as HTMLElement;
 		expect(getRevealFrames(fallback)).toBe(1);
 	});
 });

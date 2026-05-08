@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
+import { codeByStatus } from '$lib/types/app-error';
 import {
 	AppError,
-	codeByStatus,
 	isHttpErrorLike,
 	isRecord,
 	normalizeError,

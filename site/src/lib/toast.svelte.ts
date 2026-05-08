@@ -1,5 +1,11 @@
 import { browser } from '$app/environment';
-import { isPublicAppError, type ApiErrorResponse, type PublicAppError } from '$lib/types/app-error';
+import {
+	codeByStatus,
+	isAppErrorCode,
+	isPublicAppError,
+	type ApiErrorResponse,
+	type PublicAppError
+} from '$lib/types/app-error';
 
 export type ToastTone = 'info' | 'success' | 'warning' | 'error';
 
@@ -74,6 +80,30 @@ export const parsePublicError = (value: unknown): PublicAppError | null => {
 
 	if (isApiErrorResponse(value)) {
 		return value.error;
+	}
+
+	if (typeof value === 'object' && value !== null) {
+		const maybeValue = value as {
+			message?: unknown;
+			code?: unknown;
+			requestId?: unknown;
+			status?: unknown;
+			error?: unknown;
+		};
+
+		const nestedError = parsePublicError(maybeValue.error);
+		if (nestedError) {
+			return nestedError;
+		}
+
+		if (typeof maybeValue.message === 'string' && maybeValue.message) {
+			const status = typeof maybeValue.status === 'number' ? maybeValue.status : 500;
+			return {
+				code: isAppErrorCode(maybeValue.code) ? maybeValue.code : codeByStatus(status),
+				message: maybeValue.message,
+				requestId: typeof maybeValue.requestId === 'string' ? maybeValue.requestId : undefined
+			};
+		}
 	}
 
 	return null;

@@ -1,18 +1,9 @@
 <script lang="ts">
 	import './layout.css';
-	import 'katex/dist/katex.min.css';
 	import { onNavigate } from '$app/navigation';
-	import { onMount } from 'svelte';
 	import ToastViewport from '$lib/components/ToastViewport.svelte';
 
 	let { children } = $props();
-	let initialLoadVisible = $state(false);
-
-	onMount(() => {
-		requestAnimationFrame(() => {
-			initialLoadVisible = true;
-		});
-	});
 
 	onNavigate((navigation) => {
 		if (!document.startViewTransition) {
@@ -28,19 +19,23 @@
 	});
 </script>
 
-<svelte:head><link rel="icon" href="favicon.png" /></svelte:head>
-<div class:initial-load-visible={initialLoadVisible} class="initial-load-shell">
+<svelte:head>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link
+		rel="stylesheet"
+		href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+	/>
+</svelte:head>
+
+<div class="initial-load-shell">
 	{@render children()}
 </div>
 <ToastViewport />
 
 <style>
 	.initial-load-shell {
-		opacity: 0;
-	}
-
-	.initial-load-shell.initial-load-visible {
-		animation: page-fade-in 660ms ease forwards;
+		opacity: 1;
 	}
 
 	:global(::view-transition-old(root)) {

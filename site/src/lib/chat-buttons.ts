@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const ButtonSimulationValuesSchema = z.object({
+const ButtonSimulationValuesSchema = z.object({
 	n: z.number(),
 	l: z.number(),
 	m: z.number()
@@ -19,7 +19,7 @@ export const ButtonToggleSchema = z.discriminatedUnion('toggleType', [
 	})
 ]);
 
-export const ChatButtonSchema = z
+const ChatButtonSchema = z
 	.object({
 		label: z.string().trim().min(1).max(40).optional(),
 		simulationValues: ButtonSimulationValuesSchema.optional(),
@@ -52,7 +52,7 @@ const SingleCreateButtonArgumentsSchema = z.object({
 	simulationValues: ButtonSimulationValuesSchema.optional()
 });
 
-export const CreateToggleButtonArgumentsSchema = z.discriminatedUnion('toggleType', [
+const CreateToggleButtonArgumentsSchema = z.discriminatedUnion('toggleType', [
 	z.object({
 		toggleType: z.literal('positive_xy_cross_section'),
 		labelWhenVisible: z.string().trim().min(1).max(40).default('Hide +X/+Y cross section'),

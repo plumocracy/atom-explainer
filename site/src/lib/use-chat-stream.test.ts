@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const listenMock = vi.fn();
 
@@ -31,12 +31,20 @@ vi.mock('$lib/toast.svelte', () => ({ showErrorToast: vi.fn() }));
 
 import {
 	applySimulationToolCalls,
+	cancelActiveChatStream,
 	isRecord,
 	parseToolCalls,
 	summarizeToolCall,
 	useChatStream
 } from './use-chat-stream';
 import { applyGuidedTourEvent } from '$lib/tours/tour-runner';
+import { showErrorToast } from '$lib/toast.svelte';
+
+beforeEach(() => {
+	cancelActiveChatStream();
+	listenMock.mockReset();
+	vi.clearAllMocks();
+});
 
 describe('use-chat-stream helpers', () => {
 	test('tour-only message replaces empty assistant placeholder', () => {
@@ -179,5 +187,96 @@ describe('use-chat-stream helpers', () => {
 			serverId: 'assistant-1'
 		});
 		expect(abort).toHaveBeenCalled();
+	});
+
+	test('removes partial assistant data and shows a toast on stream failure', () => {
+		const abort = vi.fn();
+		const onAbort = vi.fn();
+		let handlers: {
+			onMessage: (message: { data: string }) => void;
+			onRequestError: (context: { error: Error }) => void;
+		} | null = null;
+		listenMock.mockImplementation(
+			(nextHandlers: {
+				onMessage: (message: { data: string }) => void;
+				onRequestError: (context: { error: Error }) => void;
+			}) => {
+				handlers = nextHandlers;
+				return { abort, onAbort };
+			}
+		);
+
+		const messages: Array<{
+			role: string;
+			content: string;
+			pending?: boolean;
+			live?: boolean;
+		}> = [];
+		const stream = useChatStream({
+			chatMessages: messages as never,
+			simulationValues: { n: 1, l: 0, m: 0 },
+			bohrSimulationValues: { atomicNumber: 8 },
+			visualizationState: { mode: 'orbital' },
+			setLoading: vi.fn()
+		});
+
+		stream.sendMessage('first');
+		if (!handlers) {
+			throw new Error('Expected stream handlers');
+		}
+		const streamHandlers = handlers as {
+			onMessage: (message: { data: string }) => void;
+			onRequestError: (context: { error: Error }) => void;
+		};
+
+		streamHandlers.onMessage({ data: JSON.stringify({ token: 'Partial reply' }) });
+		streamHandlers.onRequestError({ error: new Error('socket dropped') });
+
+		expect(messages).toEqual([{ id: 1, role: 'user', content: 'first', live: false }]);
+		expect(showErrorToast).toHaveBeenCalledWith(
+			expect.any(Error),
+			'Could not connect to the assistant endpoint.'
+		);
+	});
+
+	test('cancels an in-flight stream before clearing chat messages', () => {
+		const abort = vi.fn();
+		const onAbort = vi.fn();
+		let handlers: { onMessage: (message: { data: string }) => void } | null = null;
+		listenMock.mockImplementation(
+			(nextHandlers: { onMessage: (message: { data: string }) => void }) => {
+				handlers = nextHandlers;
+				return { abort, onAbort };
+			}
+		);
+
+		const messages: Array<{
+			role: string;
+			content: string;
+			pending?: boolean;
+			live?: boolean;
+		}> = [];
+		const setLoading = vi.fn();
+		const stream = useChatStream({
+			chatMessages: messages as never,
+			simulationValues: { n: 1, l: 0, m: 0 },
+			bohrSimulationValues: { atomicNumber: 8 },
+			visualizationState: { mode: 'orbital' },
+			setLoading
+		});
+
+		stream.sendMessage('first');
+		if (!handlers) {
+			throw new Error('Expected stream handlers');
+		}
+		const streamHandlers = handlers as { onMessage: (message: { data: string }) => void };
+
+		streamHandlers.onMessage({ data: JSON.stringify({ token: 'Partial reply' }) });
+		cancelActiveChatStream();
+
+		expect(messages).toEqual([{ id: 1, role: 'user', content: 'first', live: false }]);
+		expect(abort).toHaveBeenCalled();
+		expect(setLoading).toHaveBeenLastCalledWith(false);
+		expect(showErrorToast).not.toHaveBeenCalled();
 	});
 });

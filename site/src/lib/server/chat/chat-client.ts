@@ -8,29 +8,7 @@ type CreateChatStreamInput = {
 	history: ConversationMessage[];
 	message: string;
 	allowTools?: boolean;
-};
-
-type CreateToolExplanationInput = {
-	systemPrompt: string;
-	history: ConversationMessage[];
-	message: string;
-	toolCalls: StreamedToolCall[];
-};
-
-type CreateAdditionalToolCallsInput = {
-	systemPrompt: string;
-	history: ConversationMessage[];
-	message: string;
-	toolCalls: StreamedToolCall[];
-	maxRounds?: number;
-};
-
-type ToolExplanationResult = {
-	content: string;
-	usage: {
-		promptTokens: number;
-		completionTokens: number;
-	};
+	signal?: AbortSignal;
 };
 
 export const parseArgumentsText = (value: unknown): string => {
@@ -135,120 +113,21 @@ export const makeToolCallFingerprint = (toolCall: StreamedToolCall): string => {
 };
 
 export const createChatStream = (input: CreateChatStreamInput) => {
-	return openRouter.chat.send({
-		chatRequest: {
-			model: 'deepseek/deepseek-v3.2',
-			messages: [
-				{ role: 'system', content: input.systemPrompt.trim() },
-				...input.history,
-				{ role: 'user', content: input.message.trim() }
-			],
-			temperature: 0,
-			...(input.allowTools === false ? {} : { tools: CHAT_TOOLS }),
-			...(input.allowTools === false ? {} : { parallelToolCalls: true }),
-			stream: true
-		}
-	});
-};
-
-export const createToolExplanation = async (
-	input: CreateToolExplanationInput
-): Promise<ToolExplanationResult> => {
-	const toolSummary = input.toolCalls.map((toolCall) => ({
-		name: toolCall.function.name,
-		arguments: toolCall.function.parsedArguments ?? toolCall.function.arguments
-	}));
-
-	const response = await openRouter.chat.send({
-		chatRequest: {
-			model: 'deepseek/deepseek-v3.2',
-			messages: [
-				{
-					role: 'system',
-					content:
-						`${input.systemPrompt.trim()} ` +
-						'Do not call tools in this response. ' +
-						'Write 1-3 concise plain-English sentences explaining what changed and why.'
-				},
-				...input.history,
-				{
-					role: 'user',
-					content: input.message.trim()
-				},
-				{
-					role: 'user',
-					content: `Tool calls already executed for this turn: ${JSON.stringify(toolSummary)}. Respond to the user now.`
-				}
-			],
-			temperature: 0,
-			stream: false
-		}
-	});
-
-	return {
-		content: response.choices?.[0]?.message?.content?.trim() ?? '',
-		usage: {
-			promptTokens: response.usage?.promptTokens ?? 0,
-			completionTokens: response.usage?.completionTokens ?? 0
-		}
-	};
-};
-
-export const createAdditionalToolCalls = async (
-	input: CreateAdditionalToolCallsInput
-): Promise<StreamedToolCall[]> => {
-	const rounds = Math.max(0, Math.min(input.maxRounds ?? 2, 4));
-	let knownToolCalls = [...input.toolCalls];
-	const knownFingerprints = new Set(knownToolCalls.map(makeToolCallFingerprint));
-
-	for (let round = 0; round < rounds; round += 1) {
-		const response = await openRouter.chat.send({
+	return openRouter.chat.send(
+		{
 			chatRequest: {
 				model: 'deepseek/deepseek-v3.2',
 				messages: [
 					{ role: 'system', content: input.systemPrompt.trim() },
 					...input.history,
-					{ role: 'user', content: input.message.trim() },
-					{
-						role: 'user',
-						content:
-							`Tool calls already executed for this turn: ${summarizeToolCalls(knownToolCalls)}. ` +
-							'If any part of the user request remains, call all additional tools needed now. ' +
-							'Do not repeat an already executed tool call with the same arguments. ' +
-							'If no additional tools are needed, respond with plain text only and no tool calls.'
-					}
+					{ role: 'user', content: input.message.trim() }
 				],
 				temperature: 0,
-				tools: CHAT_TOOLS,
-				parallelToolCalls: true,
-				stream: false
+				...(input.allowTools === false ? {} : { tools: CHAT_TOOLS }),
+				...(input.allowTools === false ? {} : { parallelToolCalls: true }),
+				stream: true
 			}
-		});
-
-		const additionalRoundCalls = collectToolCallsFromResponse(response, knownToolCalls.length);
-		if (!additionalRoundCalls.length) {
-			break;
-		}
-
-		let didAdd = false;
-		for (const toolCall of additionalRoundCalls) {
-			const fingerprint = makeToolCallFingerprint(toolCall);
-			if (knownFingerprints.has(fingerprint)) {
-				continue;
-			}
-
-			knownFingerprints.add(fingerprint);
-			knownToolCalls.push({
-				...toolCall,
-				index: knownToolCalls.length
-			});
-			didAdd = true;
-		}
-
-		if (!didAdd) {
-			break;
-		}
-	}
-
-	return knownToolCalls.slice(input.toolCalls.length);
+		},
+		input.signal ? { signal: input.signal } : undefined
+	);
 };

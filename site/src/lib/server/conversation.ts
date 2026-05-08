@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { db } from './db';
 import { conversations, messages } from './db/conversations.schema';
 import { appError } from './errors';
@@ -37,6 +37,12 @@ type GetOrCreateConversationResult = {
 	created: boolean;
 };
 
+const activeConversationFilter = (userId: string) =>
+	and(eq(conversations.userId, userId), isNull(conversations.deletedAt));
+
+const activeConversationByIdFilter = (userId: string, conversationId: string) =>
+	and(activeConversationFilter(userId), eq(conversations.id, conversationId));
+
 export const getConversationForUser = async (
 	userId: string,
 	conversationId: string
@@ -45,7 +51,7 @@ export const getConversationForUser = async (
 		const [conversation] = await db
 			.select()
 			.from(conversations)
-			.where(and(eq(conversations.userId, userId), eq(conversations.id, conversationId)))
+			.where(activeConversationByIdFilter(userId, conversationId))
 			.limit(1);
 
 		return ok(conversation ?? null);
@@ -63,7 +69,7 @@ export const getActiveConversation = async (
 			.from(conversations)
 			.where(
 				and(
-					eq(conversations.userId, userId),
+					activeConversationFilter(userId),
 					gte(conversations.updatedAt, ACTIVE_CONVERSATION_CUTOFF)
 				)
 			)
@@ -99,11 +105,27 @@ export const deleteConversationForUser = async (
 ): Promise<ServerResult<void>> => {
 	try {
 		await db
-			.delete(conversations)
-			.where(and(eq(conversations.userId, userId), eq(conversations.id, conversationId)));
+			.update(conversations)
+			.set({ deletedAt: new Date() })
+			.where(activeConversationByIdFilter(userId, conversationId));
 		return ok(undefined);
 	} catch (error) {
 		return err(appError.internal('Could not delete conversation', { cause: error }));
+	}
+};
+
+export const restoreConversationForUser = async (
+	userId: string,
+	conversationId: string
+): Promise<ServerResult<void>> => {
+	try {
+		await db
+			.update(conversations)
+			.set({ deletedAt: null })
+			.where(and(eq(conversations.userId, userId), eq(conversations.id, conversationId)));
+		return ok(undefined);
+	} catch (error) {
+		return err(appError.internal('Could not restore conversation', { cause: error }));
 	}
 };
 
@@ -143,7 +165,10 @@ export const updateConversationTitle = async (
 	title: string
 ): Promise<ServerResult<void>> => {
 	try {
-		await db.update(conversations).set({ title }).where(eq(conversations.id, conversationId));
+		await db
+			.update(conversations)
+			.set({ title })
+			.where(and(eq(conversations.id, conversationId), isNull(conversations.deletedAt)));
 		return ok(undefined);
 	} catch (error) {
 		return err(appError.internal('Could not update conversation title', { cause: error }));
@@ -155,7 +180,7 @@ export const touchConversation = async (conversationId: string): Promise<ServerR
 		await db
 			.update(conversations)
 			.set({ updatedAt: new Date() })
-			.where(eq(conversations.id, conversationId));
+			.where(and(eq(conversations.id, conversationId), isNull(conversations.deletedAt)));
 		return ok(undefined);
 	} catch (error) {
 		return err(appError.internal('Could not update conversation activity', { cause: error }));
@@ -169,7 +194,7 @@ export const markStandingWaveVisualizationExplained = async (
 		await db
 			.update(conversations)
 			.set({ standingWaveVisualizationExplained: true })
-			.where(eq(conversations.id, conversationId));
+			.where(and(eq(conversations.id, conversationId), isNull(conversations.deletedAt)));
 		return ok(undefined);
 	} catch (error) {
 		return err(
@@ -189,7 +214,14 @@ export const getConversationMessages = async (
 				content: messages.content
 			})
 			.from(messages)
-			.where(and(eq(messages.userId, userId), eq(messages.conversationId, conversationId)))
+			.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+			.where(
+				and(
+					eq(messages.userId, userId),
+					eq(messages.conversationId, conversationId),
+					isNull(conversations.deletedAt)
+				)
+			)
 			.orderBy(asc(messages.createdAt));
 
 		return ok(history);
@@ -212,7 +244,14 @@ export const getConversationHistory = async (
 				simulationValues: messages.simulationValues
 			})
 			.from(messages)
-			.where(and(eq(messages.userId, userId), eq(messages.conversationId, conversationId)))
+			.innerJoin(conversations, eq(conversations.id, messages.conversationId))
+			.where(
+				and(
+					eq(messages.userId, userId),
+					eq(messages.conversationId, conversationId),
+					isNull(conversations.deletedAt)
+				)
+			)
 			.orderBy(asc(messages.createdAt));
 
 		return ok(history);
@@ -238,7 +277,7 @@ export const getConversationSummaries = async (
 			})
 			.from(conversations)
 			.leftJoin(messages, eq(messages.conversationId, conversations.id))
-			.where(eq(conversations.userId, userId))
+			.where(activeConversationFilter(userId))
 			.groupBy(conversations.id)
 			.orderBy(desc(conversations.updatedAt));
 
@@ -279,6 +318,7 @@ export const searchConversationHistory = async (
 			.where(
 				and(
 					eq(messages.userId, userId),
+					isNull(conversations.deletedAt),
 					sql`to_tsvector('english', ${messages.content}) @@ ${tsQuery}`
 				)
 			)

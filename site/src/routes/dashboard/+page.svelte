@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { Home, MessageSquare, X } from '@lucide/svelte';
+import Home from '@lucide/svelte/icons/house';
+import MessageSquare from '@lucide/svelte/icons/message-square';
+import X from '@lucide/svelte/icons/x';
 	import ResponseCard from '$lib/components/ResponseCard.svelte';
 	import { createChatMessage, type Message } from '$lib/chat.svelte';
 	import type { PageProps } from './$types';

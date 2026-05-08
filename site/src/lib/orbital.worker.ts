@@ -14,8 +14,8 @@ const REJECTION_SCALE_CAP = 0.0;
 const REJECTION_SCALE_FALLBACK = 50.0;
 const FLOW_STEP_SECONDS = 0.12;
 const FLOW_STEP_INTERVAL_MS = 16;
-const FAST_INITIAL_POINT_COUNT = 24_000;
- 
+const FAST_INITIAL_POINT_COUNT = 12_000;
+
 type RadialBandLimit = {
 	maxRadius: number;
 	maxPoints: number;
@@ -145,16 +145,19 @@ export const applyRadialBandCaps = (
 	};
 };
 
-const sampleChunk = (
-	n: number,
-	l: number,
-	m: number,
-	pointCount: number,
-	effectiveScale: number
-) => decodeFlowChunk(sample_batch_complex_flow(n, l, m, pointCount, R_MAX, effectiveScale));
+const sampleChunk = (n: number, l: number, m: number, pointCount: number, effectiveScale: number) =>
+	decodeFlowChunk(sample_batch_complex_flow(n, l, m, pointCount, R_MAX, effectiveScale));
 
 export const initWasm = () => {
-	if (!ready) ready = init({ module_or_path: wasmUrl }).then(() => {});
+	if (!ready) {
+		ready = init({ module_or_path: wasmUrl })
+			.then(() => {})
+			.catch((error) => {
+				ready = null;
+				throw error;
+			});
+	}
+
 	return ready;
 };
 
@@ -173,7 +176,9 @@ self.onmessage = async (e: MessageEvent) => {
 		Number.isFinite(slotCount) && slotCount > 0 ? Math.floor(slotCount) : 1
 	);
 	const shouldProgressivelyHydrate = Boolean(progressiveHydration);
-	const initialCount = shouldProgressivelyHydrate ? Math.min(count, FAST_INITIAL_POINT_COUNT) : count;
+	const initialCount = shouldProgressivelyHydrate
+		? Math.min(count, FAST_INITIAL_POINT_COUNT)
+		: count;
 	const initialPointsPerSlot = Math.max(1, Math.ceil(initialCount / effectiveSlotCount));
 	const fullPointsPerSlot = Math.max(1, Math.ceil(count / effectiveSlotCount));
 	const chunks: FlowChunk[] = [];

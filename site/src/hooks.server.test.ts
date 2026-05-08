@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { contentSecurityPolicy, setSecurityHeaders } from './hooks.server';
+import {
+	contentSecurityPolicy,
+	developmentContentSecurityPolicy,
+	setSecurityHeaders
+} from './hooks.server';
 
 describe('security headers', () => {
-	test('sets CSP and common hardening headers', () => {
+	test('sets CSP and common hardening headers for production', () => {
 		const response = new Response('ok');
-		setSecurityHeaders(response);
+		setSecurityHeaders(response, { includeTransportSecurity: true });
 
 		expect(response.headers.get('Content-Security-Policy')).toBe(contentSecurityPolicy);
 		expect(response.headers.get('Content-Security-Policy')).toContain(
@@ -21,5 +25,14 @@ describe('security headers', () => {
 		expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
 		expect(response.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
 		expect(response.headers.get('Permissions-Policy')).toContain('camera=()');
+	});
+
+	test('omits HTTPS upgrade headers in local development', () => {
+		const response = new Response('ok');
+		setSecurityHeaders(response, { includeTransportSecurity: false });
+
+		expect(response.headers.get('Content-Security-Policy')).toBe(developmentContentSecurityPolicy);
+		expect(response.headers.get('Content-Security-Policy')).not.toContain('upgrade-insecure-requests');
+		expect(response.headers.get('Strict-Transport-Security')).toBeNull();
 	});
 });

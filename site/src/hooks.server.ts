@@ -1,10 +1,10 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
-import { building } from '$app/environment';
+import { building, dev } from '$app/environment';
 import { auth } from '$lib/server/auth';
 import { normalizeError, toPublicError } from '$lib/server/errors';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 
-export const contentSecurityPolicy = [
+const baseContentSecurityPolicy = [
 	"default-src 'self'",
 	"base-uri 'self'",
 	"object-src 'none'",
@@ -20,13 +20,30 @@ export const contentSecurityPolicy = [
 	"child-src 'none'",
 	"frame-ancestors 'none'",
 	"form-action 'self'",
-	"manifest-src 'self'",
-	"upgrade-insecure-requests"
-].join('; ');
+	"manifest-src 'self'"
+];
 
-export const setSecurityHeaders = (response: Response) => {
-	response.headers.set('Content-Security-Policy', contentSecurityPolicy);
-	response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+export const contentSecurityPolicy = [...baseContentSecurityPolicy, 'upgrade-insecure-requests'].join(
+	'; '
+);
+
+export const developmentContentSecurityPolicy = baseContentSecurityPolicy.join('; ');
+
+export const setSecurityHeaders = (
+	response: Response,
+	{ includeTransportSecurity = true }: { includeTransportSecurity?: boolean } = {}
+) => {
+	response.headers.set(
+		'Content-Security-Policy',
+		includeTransportSecurity ? contentSecurityPolicy : developmentContentSecurityPolicy
+	);
+
+	if (includeTransportSecurity) {
+		response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+	} else {
+		response.headers.delete('Strict-Transport-Security');
+	}
+
 	response.headers.set('X-Frame-Options', 'DENY');
 	response.headers.set('X-Content-Type-Options', 'nosniff');
 	response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -54,7 +71,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		event,
 		resolve: async (event, opts) => {
 			const response = await resolve(event, opts);
-			setSecurityHeaders(response);
+			setSecurityHeaders(response, { includeTransportSecurity: !dev });
 			return response;
 		}
 	});

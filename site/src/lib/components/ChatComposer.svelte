@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { Atom, ArrowUp } from '@lucide/svelte';
+import ArrowUp from '@lucide/svelte/icons/arrow-up';
+import Atom from '@lucide/svelte/icons/atom';
 
 	let {
 		value = $bindable(),

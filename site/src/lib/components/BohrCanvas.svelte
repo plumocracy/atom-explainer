@@ -35,10 +35,10 @@
 	let frameId = 0;
 	let elapsedMs = 0;
 	let lastTick = 0;
+	let webglError = $state<string | null>(null);
 
 	let atomicNumber = $derived(bohrSimulationValues.atomicNumber);
 	const shellDistribution = $derived.by(() => getBohrShellDistribution(atomicNumber));
-
 
 	const ringSegments = 128;
 	const ELECTRON_SPHERE_RADIUS = 0.16;
@@ -585,29 +585,79 @@ void main() {
 		persistCameraPose();
 	};
 
-	onMount(() => {
+	const stopRendering = () => {
+		if (frameId) {
+			cancelAnimationFrame(frameId);
+			frameId = 0;
+		}
+	};
+
+	const resetGlResources = () => {
+		gl = null;
+		lineProgram = null;
+		sphereProgram = null;
+		lineUProj = null;
+		lineUView = null;
+		lineUColor = null;
+		sphereUProj = null;
+		sphereUView = null;
+		sphereUCameraPosition = null;
+		sphereUSphereRadius = null;
+		ringVbo = null;
+		axisVbo = null;
+		electronSpheres = null;
+		nucleusSphere = null;
+		sphereMesh = null;
+		ringVertexCount = 0;
+		axisVertexCount = 0;
+		electronPositions = new Float32Array(0);
+	};
+
+	const releaseSceneResources = () => {
+		stopRendering();
+		window.removeEventListener('resize', uploadProjection);
+		resetGlResources();
+	};
+
+	const teardownScene = () => {
+		canvas?.removeEventListener('webglcontextlost', onWebglContextLost);
+		canvas?.removeEventListener('webglcontextrestored', onWebglContextRestored);
+		releaseSceneResources();
+	};
+
+	const initializeScene = (restoreCamera = false) => {
 		if (!browser || !canvas) {
 			return;
 		}
 
-		const restoredCamera = loadCameraPose(
-			BOHR_CAMERA_STORAGE_KEY,
-			{ azimuth: cameraAzimuth, elevation: cameraElevation, radius: cameraRadius },
-			{
-				minElevation: minCameraElevation,
-				maxElevation: maxCameraElevation,
-				minRadius: minCameraRadius,
-				maxRadius: maxCameraRadius
-			}
-		);
-		cameraAzimuth = restoredCamera.azimuth;
-		cameraElevation = restoredCamera.elevation;
-		cameraRadius = restoredCamera.radius;
+		teardownScene();
+		if (restoreCamera) {
+			const restoredCamera = loadCameraPose(
+				BOHR_CAMERA_STORAGE_KEY,
+				{ azimuth: cameraAzimuth, elevation: cameraElevation, radius: cameraRadius },
+				{
+					minElevation: minCameraElevation,
+					maxElevation: maxCameraElevation,
+					minRadius: minCameraRadius,
+					maxRadius: maxCameraRadius
+				}
+			);
+			cameraAzimuth = restoredCamera.azimuth;
+			cameraElevation = restoredCamera.elevation;
+			cameraRadius = restoredCamera.radius;
+		}
 
-		gl = canvas.getContext('webgl2', { alpha: true, antialias: true });
-		if (!gl) {
+		const nextGl = canvas.getContext('webgl2', { alpha: true, antialias: true });
+		if (!nextGl) {
+			webglError =
+				'WebGL2 is unavailable in this browser or device, so the Bohr visualization cannot be rendered.';
 			return;
 		}
+
+		webglError = null;
+		gl = nextGl;
+		elapsedMs = 0;
+		lastTick = 0;
 
 		lineProgram = createProgram(gl, lineVs, lineFs);
 		sphereProgram = createProgram(gl, sphereVs, sphereFs);
@@ -624,7 +674,7 @@ void main() {
 		ringVbo = gl.createBuffer();
 		axisVbo = gl.createBuffer();
 		if (!ringVbo || !axisVbo) {
-			return;
+			throw new Error('Could not allocate WebGL buffers for the Bohr visualization.');
 		}
 
 		sphereMesh = createSphereMesh(gl, buildSphereTriangles(32, 48));
@@ -644,8 +694,36 @@ void main() {
 		rebuildModel();
 		uploadProjection();
 
+		canvas.addEventListener('webglcontextlost', onWebglContextLost);
+		canvas.addEventListener('webglcontextrestored', onWebglContextRestored);
+		window.removeEventListener('resize', uploadProjection);
 		window.addEventListener('resize', uploadProjection);
 		frameId = requestAnimationFrame(render);
+	};
+
+	const onWebglContextLost = (event: Event) => {
+		event.preventDefault();
+		releaseSceneResources();
+	};
+
+	const onWebglContextRestored = () => {
+		try {
+			initializeScene(false);
+		} catch (error) {
+			console.error(error);
+			teardownScene();
+			webglError = 'The Bohr visualization could not recover after the WebGL context was restored.';
+		}
+	};
+
+	onMount(() => {
+		try {
+			initializeScene(true);
+		} catch (error) {
+			console.error(error);
+			teardownScene();
+			webglError = 'The Bohr visualization could not initialize WebGL2.';
+		}
 	});
 
 	onDestroy(() => {
@@ -658,7 +736,7 @@ void main() {
 		}
 
 		persistCameraPose();
-		window.removeEventListener('resize', uploadProjection);
+		teardownScene();
 	});
 </script>
 
@@ -667,14 +745,24 @@ void main() {
 		<div
 			class="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_14%_18%,rgba(126,255,163,0.14),transparent_40%),radial-gradient(circle_at_78%_12%,rgba(214,255,228,0.05),transparent_32%),linear-gradient(135deg,#081017_0%,#0e1b25_60%,#142431_100%)]"
 		></div>
-		<canvas
-			bind:this={canvas}
-			onpointerdown={onCanvasPointerDown}
-			onpointermove={onCanvasPointerMove}
-			onpointerup={onCanvasPointerUp}
-			onpointercancel={onCanvasPointerUp}
-			onwheel={onCanvasWheel}
-			class="relative z-10 block h-full w-full cursor-grab touch-none active:cursor-grabbing"
-		></canvas>
+		{#if webglError}
+			<div class="relative z-10 flex h-full w-full items-center justify-center p-6">
+				<div
+					class="max-w-md rounded-2xl border border-[rgba(214,255,228,0.16)] bg-[rgba(8,16,23,0.82)] px-5 py-4 text-center text-sm leading-6 text-[rgba(243,229,205,0.92)] shadow-[0_20px_60px_rgba(0,0,0,0.32)] backdrop-blur-sm"
+				>
+					{webglError}
+				</div>
+			</div>
+		{:else}
+			<canvas
+				bind:this={canvas}
+				onpointerdown={onCanvasPointerDown}
+				onpointermove={onCanvasPointerMove}
+				onpointerup={onCanvasPointerUp}
+				onpointercancel={onCanvasPointerUp}
+				onwheel={onCanvasWheel}
+				class="relative z-10 block h-full w-full cursor-grab touch-none active:cursor-grabbing"
+			></canvas>
+		{/if}
 	</div>
 </div>

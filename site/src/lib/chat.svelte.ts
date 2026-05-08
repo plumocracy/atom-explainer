@@ -1,9 +1,10 @@
-import { z } from 'zod';
 import type { ChatButton } from '$lib/chat-buttons';
 
-export const SimulationValuesSchema = z.object({ n: z.number(), l: z.number(), m: z.number() });
-
-export type SimulationValues = z.infer<typeof SimulationValuesSchema>;
+export type SimulationValues = {
+	n: number;
+	l: number;
+	m: number;
+};
 export type VisualizationMode = 'orbital' | 'bohr';
 
 const BOHR_SHELL_CAPACITIES = [2, 8, 18, 32, 50] as const;
@@ -25,14 +26,12 @@ export const getBohrShellDistribution = (atomicNumber: number): number[] => {
 	return shells;
 };
 
-export const CameraTargetSchema = z.object({
-	x: z.number(),
-	y: z.number(),
-	z: z.number(),
-	durationMs: z.number().positive().max(10_000).optional()
-});
-
-export type CameraTarget = z.infer<typeof CameraTargetSchema>;
+export type CameraTarget = {
+	x: number;
+	y: number;
+	z: number;
+	durationMs?: number;
+};
 
 export type CameraMoveRequest = CameraTarget & {
 	id: number;
@@ -85,6 +84,20 @@ export const orbitalCameraState = $state<{ moveRequest: CameraMoveRequest | null
 	moveRequest: null
 });
 
+const clampSimulationValues = (next: SimulationValues): SimulationValues => {
+	const n = next.n;
+	const l = Math.max(0, Math.min(next.l, n - 1));
+	const m = Math.max(-l, Math.min(next.m, l));
+	return { n, l, m };
+};
+
+export const setSimulationValues = (next: SimulationValues): void => {
+	const normalized = clampSimulationValues(next);
+	simulationValues.n = normalized.n;
+	simulationValues.l = normalized.l;
+	simulationValues.m = normalized.m;
+};
+
 export const chatMessages = $state<Message[]>([]);
 
 let nextMessageId = 0;
@@ -124,9 +137,7 @@ export const getChatButtonLabel = (button: ChatButton): string => {
 
 export const applyChatButton = (button: ChatButton): void => {
 	if (button.simulationValues) {
-		simulationValues.n = button.simulationValues.n;
-		simulationValues.l = button.simulationValues.l;
-		simulationValues.m = button.simulationValues.m;
+		setSimulationValues(button.simulationValues);
 	}
 
 	if (button.visualizationMode) {
@@ -144,9 +155,7 @@ export const applyChatButton = (button: ChatButton): void => {
 
 export const applyToolCallMessage = (toolCall: ToolCallMessage): void => {
 	if (toolCall.simulationValues) {
-		simulationValues.n = toolCall.simulationValues.n;
-		simulationValues.l = toolCall.simulationValues.l;
-		simulationValues.m = toolCall.simulationValues.m;
+		setSimulationValues(toolCall.simulationValues);
 	}
 
 	if (toolCall.cameraTarget) {

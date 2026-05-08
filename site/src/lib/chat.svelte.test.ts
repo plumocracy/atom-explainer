@@ -11,6 +11,7 @@ import {
 	orbitalCameraState,
 	orbitalViewState,
 	queueOrbitalCameraMove,
+	setSimulationValues,
 	setPositiveXYCrossSectionHidden,
 	simulationValues,
 	visualizationState
@@ -18,9 +19,7 @@ import {
 
 describe('chat.svelte helpers', () => {
 	beforeEach(() => {
-		simulationValues.n = 1;
-		simulationValues.l = 0;
-		simulationValues.m = 0;
+		setSimulationValues({ n: 1, l: 0, m: 0 });
 		bohrSimulationValues.atomicNumber = 8;
 		visualizationState.mode = 'orbital';
 		orbitalViewState.hidePositiveXYCrossSection = false;
@@ -63,7 +62,9 @@ describe('chat.svelte helpers', () => {
 	test('applyChatButton handles simulation and visualization toggles', () => {
 		applyChatButton({ simulationValues: { n: 2, l: 1, m: 0 } });
 		expect(simulationValues).toMatchObject({ n: 2, l: 1, m: 0 });
-		applyChatButton({ toggleButton: { toggleType: 'visualization_mode', labelWhenOrbital: 'x', labelWhenBohr: 'y' } });
+		applyChatButton({
+			toggleButton: { toggleType: 'visualization_mode', labelWhenOrbital: 'x', labelWhenBohr: 'y' }
+		});
 		expect(visualizationState.mode).toBe('bohr');
 	});
 

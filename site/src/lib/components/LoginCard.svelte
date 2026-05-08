@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowRight } from '@lucide/svelte';
+import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import { signIn, signOut, type Provider } from '$lib/auth-client';
 	import { showErrorToast } from '$lib/toast.svelte';
 

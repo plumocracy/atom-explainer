@@ -36,6 +36,16 @@ describe('toast helpers', () => {
 		expect(isApiErrorResponse(payload)).toBe(true);
 		expect(parsePublicError(payload)).toEqual(payload.error);
 		expect(parsePublicError({ code: 'BAD_REQUEST', message: 'x' })).toEqual({ code: 'BAD_REQUEST', message: 'x' });
+		expect(parsePublicError({ error: { message: 'missing', status: 404 } })).toEqual({
+			code: 'NOT_FOUND',
+			message: 'missing',
+			requestId: undefined
+		});
+		expect(parsePublicError({ message: 'denied', status: 403 })).toEqual({
+			code: 'FORBIDDEN',
+			message: 'denied',
+			requestId: undefined
+		});
 	});
 
 	test('showErrorToast supports public error, Error, string, and fallback', () => {

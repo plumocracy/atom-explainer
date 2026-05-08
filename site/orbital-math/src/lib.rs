@@ -142,7 +142,6 @@ impl RadialSampler {
 
 struct AngularSampler {
     l: u32,
-    m: i32,
     abs_m: u32,
     norm: f64,
 }
@@ -154,7 +153,6 @@ impl AngularSampler {
         if abs_m > l {
             return Self {
                 l,
-                m,
                 abs_m,
                 norm: 0.0,
             };
@@ -164,33 +162,8 @@ impl AngularSampler {
             / factorial(l + abs_m))
         .sqrt();
 
-        Self { l, m, abs_m, norm }
+        Self { l, abs_m, norm }
     }
-
-    fn value_from_cos_theta(&self, cos_theta: f64, phi: f64) -> f64 {
-        let p = legendre(self.l, self.abs_m, cos_theta);
-
-        if self.m > 0 {
-            2.0_f64.sqrt() * self.norm * p * (self.m as f64 * phi).cos()
-        } else if self.m < 0 {
-            2.0_f64.sqrt() * self.norm * p * (self.abs_m as f64 * phi).sin()
-        } else {
-            self.norm * p
-        }
-    }
-}
-
-fn probability_density_cached(
-    radial_sampler: &RadialSampler,
-    angular_sampler: &AngularSampler,
-    r: f64,
-    cos_theta: f64,
-    phi: f64,
-) -> f64 {
-    let radial_val = radial_sampler.value(r);
-    let angular_val = angular_sampler.value_from_cos_theta(cos_theta, phi);
-    let val = radial_val * angular_val;
-    val * val
 }
 
 fn complex_probability_density_cached(
@@ -203,28 +176,6 @@ fn complex_probability_density_cached(
     let angular_val =
         angular_sampler.norm * legendre(angular_sampler.l, angular_sampler.abs_m, cos_theta);
     radial_val * radial_val * angular_val * angular_val
-}
-
-fn estimate_probability_peak(
-    radial_sampler: &RadialSampler,
-    angular_sampler: &AngularSampler,
-    r_max: f64,
-    rng: &mut XorShift64,
-) -> f64 {
-    let mut max_p = 0.0;
-
-    for _ in 0..AUTO_SCALE_PROBES {
-        let r = rng.next_f64() * r_max;
-        let cos_t = 1.0 - 2.0 * rng.next_f64();
-        let phi = TAU * rng.next_f64();
-
-        let p = probability_density_cached(radial_sampler, angular_sampler, r, cos_t, phi);
-        if p > max_p {
-            max_p = p;
-        }
-    }
-
-    max_p
 }
 
 fn estimate_complex_probability_peak(
@@ -461,38 +412,6 @@ fn sample_complex_flow_particle(
 }
 
 #[wasm_bindgen]
-pub fn auto_rejection_scale(n: u32, l: u32, m: i32, r_max: f64, scale_cap: f64) -> f64 {
-    if r_max <= 0.0 {
-        return 0.0;
-    }
-
-    let radial_sampler = RadialSampler::new(n, l);
-    let angular_sampler = AngularSampler::new(l, m);
-    if radial_sampler.norm == 0.0 || angular_sampler.norm == 0.0 {
-        return 0.0;
-    }
-
-    let seed = ((js_sys::Math::random() * u64::MAX as f64) as u64)
-        ^ ((n as u64) << 32)
-        ^ ((l as u64) << 16)
-        ^ (m as i64 as u64);
-    let mut rng = XorShift64::new(seed);
-
-    let max_p_estimate =
-        estimate_probability_peak(&radial_sampler, &angular_sampler, r_max, &mut rng);
-    if max_p_estimate <= 0.0 {
-        return 0.0;
-    }
-
-    let mut scale = AUTO_SCALE_TARGET / max_p_estimate;
-    if scale_cap.is_finite() && scale_cap > 0.0 {
-        scale = scale.min(scale_cap);
-    }
-
-    scale
-}
-
-#[wasm_bindgen]
 pub fn auto_rejection_scale_complex(n: u32, l: u32, m: i32, r_max: f64, scale_cap: f64) -> f64 {
     if r_max <= 0.0 {
         return 0.0;
@@ -526,7 +445,6 @@ pub fn auto_rejection_scale_complex(n: u32, l: u32, m: i32, r_max: f64, scale_ca
 }
 
 // Radial function R_nl(r)
-#[wasm_bindgen]
 pub fn radial(n: u32, l: u32, r: f64) -> f64 {
     if n == 0 || l >= n {
         return 0.0;
@@ -568,149 +486,6 @@ fn legendre(l: u32, m: u32, x: f64) -> f64 {
         pmmp1 = pll;
     }
     pll
-}
-
-#[wasm_bindgen]
-pub fn spherical_harmonic(l: u32, m: i32, theta: f64, phi: f64) -> f64 {
-    if m.unsigned_abs() > l {
-        return 0.0;
-    }
-
-    AngularSampler::new(l, m).value_from_cos_theta(theta.cos(), phi)
-}
-
-// Full wavefunction
-#[wasm_bindgen]
-pub fn psi(n: u32, l: u32, m: i32, r: f64, theta: f64, phi: f64) -> f64 {
-    radial(n, l, r) * spherical_harmonic(l, m, theta, phi)
-}
-
-#[wasm_bindgen]
-pub fn complex_psi_components(n: u32, l: u32, m: i32, r: f64, theta: f64, phi: f64) -> Vec<f64> {
-    let value = complex_psi_value(n, l, m, r, theta, phi);
-    vec![value.re, value.im]
-}
-
-// Probability density |wavefunction|²
-#[wasm_bindgen]
-pub fn probability_density(n: u32, l: u32, m: i32, r: f64, theta: f64, phi: f64) -> f64 {
-    let val = psi(n, l, m, r, theta, phi);
-    val * val
-}
-
-#[wasm_bindgen]
-pub fn probability_current_velocity_cartesian(
-    n: u32,
-    l: u32,
-    m: i32,
-    x: f64,
-    y: f64,
-    z: f64,
-    step: f64,
-    density_epsilon: f64,
-    velocity_cap: f64,
-) -> Vec<f64> {
-    let (current, rho) = current_density_cartesian(n, l, m, x, y, z, step);
-
-    if rho <= density_epsilon.max(0.0) {
-        return vec![current[0], current[1], current[2], 0.0, 0.0, 0.0, rho];
-    }
-
-    let mut velocity = [current[0] / rho, current[1] / rho, current[2] / rho];
-    let speed =
-        (velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]).sqrt();
-    if velocity_cap.is_finite() && velocity_cap > 0.0 && speed > velocity_cap {
-        let scale = velocity_cap / speed;
-        velocity[0] *= scale;
-        velocity[1] *= scale;
-        velocity[2] *= scale;
-    }
-
-    // Numerical differentiation of exact psi should still give zero current for
-    // pure real states like m = 0, but tiny floating-point residue can remain.
-    for component in &mut velocity {
-        if component.abs() < 1e-10 {
-            *component = 0.0;
-        }
-    }
-
-    vec![
-        current[0],
-        current[1],
-        current[2],
-        velocity[0],
-        velocity[1],
-        velocity[2],
-        rho,
-    ]
-}
-
-// Radial probability P(r)
-#[wasm_bindgen]
-pub fn radial_probability(n: u32, l: u32, r: f64) -> f64 {
-    if n == 0 || l >= n {
-        return 0.0;
-    }
-
-    let r_val = radial(n, l, r);
-    r * r * r_val * r_val
-}
-
-// Point sampler -- responsible for actually generating all the points to send to the client.
-#[wasm_bindgen]
-pub fn sample_batch(
-    n: u32,
-    l: u32,
-    m: i32,
-    count: u32,
-    r_max: f64,
-    rejection_scale: f64,
-) -> Vec<f32> {
-    if count == 0 || r_max <= 0.0 || rejection_scale <= 0.0 {
-        return Vec::new();
-    }
-
-    let radial_sampler = RadialSampler::new(n, l);
-    let angular_sampler = AngularSampler::new(l, m);
-    if radial_sampler.norm == 0.0 || angular_sampler.norm == 0.0 {
-        return Vec::new();
-    }
-
-    let target_len = count as usize * 3;
-    let mut points = Vec::with_capacity(target_len);
-
-    let seed = ((js_sys::Math::random() * u64::MAX as f64) as u64)
-        ^ ((n as u64) << 32)
-        ^ ((l as u64) << 16)
-        ^ (m as i64 as u64)
-        ^ (count as u64);
-    let mut rng = XorShift64::new(seed);
-    let mut tuned_scale = rejection_scale;
-
-    while points.len() < target_len {
-        let r = rng.next_f64() * r_max;
-        let cos_t = 1.0 - 2.0 * rng.next_f64();
-        let sin_t = (1.0 - cos_t * cos_t).max(0.0).sqrt();
-        let phi = TAU * rng.next_f64();
-
-        let p = probability_density_cached(&radial_sampler, &angular_sampler, r, cos_t, phi);
-
-        let accept_prob = p * tuned_scale;
-        if accept_prob >= 1.0 {
-            points.clear();
-            tuned_scale = AUTO_SCALE_TARGET / p;
-            continue;
-        }
-
-        if rng.next_f64() < accept_prob {
-            let (sin_p, cos_p) = phi.sin_cos();
-            points.push((r * sin_t * cos_p) as f32); // x
-            points.push((r * sin_t * sin_p) as f32); // y
-            points.push((r * cos_t) as f32); // z
-        }
-    }
-
-    points
 }
 
 #[wasm_bindgen]

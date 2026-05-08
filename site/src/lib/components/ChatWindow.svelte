@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { ArrowLeft, Star, ThumbsDown, ThumbsUp, Trash2 } from '@lucide/svelte';
+import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+import Star from '@lucide/svelte/icons/star';
+import ThumbsDown from '@lucide/svelte/icons/thumbs-down';
+import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
+import Trash2 from '@lucide/svelte/icons/trash-2';
 	import {
 		applyToolCallMessages,
 		bohrSimulationValues,
@@ -17,6 +21,7 @@
 	import ChatComposer from './ChatComposer.svelte';
 	import ChatSignInPrompt from './ChatSignInPrompt.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
+	import { cancelActiveChatStream } from '$lib/chat-stream-cancel';
 	import { useChatStream } from '$lib/use-chat-stream';
 	import { chatHandoffState, chatUiState } from '$lib/chat-ui-state.svelte';
 	import { goto } from '$app/navigation';
@@ -24,7 +29,7 @@
 	import { showErrorToast, showToast } from '$lib/toast.svelte';
 	import { getTourSummary } from '$lib/tours/tours';
 	import { guidedTourState, resetGuidedTourState } from '$lib/tours/tour-state.svelte';
-	import { clearGuidedTour, startGuidedTour, stopGuidedTour } from '$lib/tours/tour-runner';
+	import { clearGuidedTour, startGuidedTour } from '$lib/tours/tour-runner';
 
 	type ChatUser = {
 		name?: string | null;
@@ -101,7 +106,6 @@
 	const guidedTourActive = $derived(guidedTourState.status === 'running');
 	const loading = $derived(chatUiState.loading);
 	const toolCalling = $derived(chatUiState.toolCalling);
-	const activeHistoryConversationId = $derived(chatUiState.conversationId);
 	const groupedConversationSummaries = $derived.by(() => {
 		const groups: Array<{ label: string; conversations: typeof conversationSummaries }> = [];
 		let currentLabel = '';
@@ -189,6 +193,7 @@
 			awaitingConfirmation?: boolean;
 		} | null;
 	}) => {
+		cancelActiveChatStream();
 		chatUiState.conversationId = input.conversationId;
 		chatMessages.length = 0;
 
@@ -421,6 +426,7 @@
 			}
 
 			chatUiState.conversationId = payload.conversationId ?? null;
+			cancelActiveChatStream();
 			chatMessages.length = 0;
 			messageSent = false;
 			input = '';
@@ -612,6 +618,7 @@
 
 			if (chatUiState.conversationId === conversationId) {
 				chatUiState.conversationId = null;
+				cancelActiveChatStream();
 				chatMessages.length = 0;
 				messageSent = false;
 				setConversationQuery(null);
@@ -933,7 +940,7 @@
 															onclick={() => (confirmDeleteConversationId = conversation.id)}
 															aria-label="Delete conversation"
 														>
-													<Trash2 class="text-lg" />
+															<Trash2 class="text-lg" />
 														</button>
 													</div>
 

@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
 import { json } from '@sveltejs/kit';
 import { createConversation, deleteConversationForUser } from '$lib/server/conversation';
-import { toErrorResponse } from '$lib/server/errors';
+import { appError, toErrorResponse } from '$lib/server/errors';
 import { requireUser } from '$lib/server/user';
 
 export const POST: RequestHandler = async ({ locals }) => {
@@ -31,7 +31,7 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 
 		const conversationId = url.searchParams.get('conversation');
 		if (!conversationId) {
-			return json({ success: false, error: { message: 'Conversation id is required.' } }, { status: 400 });
+			return toErrorResponse(appError.badRequest('Conversation id is required.'), locals.requestId);
 		}
 
 		const deleteResult = await deleteConversationForUser(userResult.data.id, conversationId);

@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, test } from 'vitest';
-import { bohrSimulationValues, orbitalCameraState, orbitalViewState, simulationValues, visualizationState } from '$lib/chat.svelte';
+import {
+	bohrSimulationValues,
+	orbitalCameraState,
+	orbitalViewState,
+	setSimulationValues,
+	simulationValues,
+	visualizationState
+} from '$lib/chat.svelte';
 import { applyTourActions } from './tour-actions';
 
 describe('applyTourActions', () => {
 	beforeEach(() => {
-		simulationValues.n = 1;
-		simulationValues.l = 0;
-		simulationValues.m = 0;
+		setSimulationValues({ n: 1, l: 0, m: 0 });
 		visualizationState.mode = 'orbital';
 		orbitalViewState.hidePositiveXYCrossSection = false;
 		bohrSimulationValues.atomicNumber = 8;

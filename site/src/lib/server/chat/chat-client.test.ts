@@ -1,13 +1,16 @@
-import { beforeAll, describe, expect, test, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+
+const { send } = vi.hoisted(() => ({ send: vi.fn() }));
 
 vi.mock('$env/dynamic/private', () => ({ env: { OPENROUTER_API_KEY: 'test' } }));
 vi.mock('@openrouter/sdk', () => ({
 	OpenRouter: class {
-		chat = { send: vi.fn() };
+		chat = { send };
 	}
 }));
 
 let collectToolCallsFromResponse: typeof import('./chat-client').collectToolCallsFromResponse;
+let createChatStream: typeof import('./chat-client').createChatStream;
 let makeToolCallFingerprint: typeof import('./chat-client').makeToolCallFingerprint;
 let parseArgumentsJson: typeof import('./chat-client').parseArgumentsJson;
 let parseArgumentsText: typeof import('./chat-client').parseArgumentsText;
@@ -16,6 +19,7 @@ let summarizeToolCalls: typeof import('./chat-client').summarizeToolCalls;
 beforeAll(async () => {
 	({
 		collectToolCallsFromResponse,
+		createChatStream,
 		makeToolCallFingerprint,
 		parseArgumentsJson,
 		parseArgumentsText,
@@ -24,6 +28,8 @@ beforeAll(async () => {
 });
 
 describe('chat-client helpers', () => {
+	beforeEach(() => send.mockReset());
+
 	test('parseArgumentsText handles string, nullish, and object', () => {
 		expect(parseArgumentsText('x')).toBe('x');
 		expect(parseArgumentsText(undefined)).toBe('');
@@ -65,5 +71,27 @@ describe('chat-client helpers', () => {
 		};
 		expect(summarizeToolCalls([call])).toContain('"name":"set"');
 		expect(makeToolCallFingerprint(call)).toBe('set:{"n":1}');
+	});
+
+	test('createChatStream forwards AbortSignal to SDK request options', () => {
+		send.mockResolvedValue({});
+		const abortController = new AbortController();
+
+		createChatStream({
+			systemPrompt: 'system',
+			history: [],
+			message: 'hello',
+			signal: abortController.signal
+		});
+
+		expect(send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				chatRequest: expect.objectContaining({
+					stream: true,
+					messages: expect.arrayContaining([{ role: 'user', content: 'hello' }])
+				})
+			}),
+			expect.objectContaining({ signal: abortController.signal })
+		);
 	});
 });

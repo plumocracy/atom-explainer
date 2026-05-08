@@ -40,6 +40,8 @@
 			return;
 		}
 
+		const currentAudioContext = audioContext;
+
 		audioBuffers = await Promise.all(
 			GUITAR_SAMPLE_PATHS.map(async (path) => {
 				if (!path) {
@@ -53,7 +55,7 @@
 					}
 
 					const buffer = await response.arrayBuffer();
-					return await audioContext.decodeAudioData(buffer);
+					return await currentAudioContext.decodeAudioData(buffer);
 				} catch {
 					return null;
 				}

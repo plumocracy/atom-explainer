@@ -1,5 +1,6 @@
 import { EventSourcePlus } from 'event-source-plus';
 import { parseCreateButtons } from '$lib/chat-buttons';
+import { cancelActiveChatStream, setActiveChatStreamCanceler } from '$lib/chat-stream-cancel';
 import { showErrorToast } from '$lib/toast.svelte';
 import { guidedTourState } from '$lib/tours/tour-state.svelte';
 import { applyGuidedTourEvent } from '$lib/tours/tour-runner';
@@ -204,10 +205,11 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		setLoading(true);
 		setToolCalling?.(false);
 
-		let botMessageIdx = -1;
+		let pendingAssistant: Message | null = null;
+		let emptyPendingAssistantDiscarded = false;
 
 		if (useSeededPending) {
-			botMessageIdx = chatMessages.length - 1;
+			pendingAssistant = chatMessages.at(-1) ?? null;
 		} else {
 			if (!omitUserMessage) {
 				chatMessages.push(
@@ -228,29 +230,47 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 				})
 			);
 
-			botMessageIdx = chatMessages.length - 1;
+			pendingAssistant = chatMessages.at(-1) ?? null;
 		}
 
-		const failPendingMessage = (reason: unknown, fallback: string) => {
-			const pendingMessage = chatMessages[botMessageIdx];
-			if (botMessageIdx >= 0 && pendingMessage) {
-				pendingMessage.pending = false;
-				pendingMessage.live = false;
-				if (!pendingMessage.content) {
-					pendingMessage.content = 'Sorry, I hit an error before I could respond.';
-				}
+		const getPendingAssistant = (): Message | null => {
+			if (!pendingAssistant) {
+				return null;
 			}
 
+			return chatMessages.includes(pendingAssistant) ? pendingAssistant : null;
+		};
+
+		const removePendingAssistant = () => {
+			const livePendingAssistant = getPendingAssistant();
+			if (!livePendingAssistant) {
+				pendingAssistant = null;
+				return;
+			}
+
+			const pendingAssistantIdx = chatMessages.indexOf(livePendingAssistant);
+			if (pendingAssistantIdx >= 0) {
+				chatMessages.splice(pendingAssistantIdx, 1);
+			}
+			pendingAssistant = null;
+		};
+
+		const finishStream = () => {
 			inFlight = false;
 			setLoading(false);
 			setToolCalling?.(false);
+			setActiveChatStreamCanceler(null);
+		};
+
+		const failPendingMessage = (reason: unknown, fallback: string) => {
+			removePendingAssistant();
+			finishStream();
 			showErrorToast(reason, fallback);
 		};
 
 		const discardEmptyPendingAssistant = () => {
-			const pendingMessage = chatMessages[botMessageIdx];
+			const pendingMessage = getPendingAssistant();
 			if (
-				botMessageIdx < 0 ||
 				!pendingMessage ||
 				pendingMessage.role !== 'assistant' ||
 				pendingMessage.content.trim() ||
@@ -261,8 +281,8 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 				return;
 			}
 
-			chatMessages.splice(botMessageIdx, 1);
-			botMessageIdx = -1;
+			removePendingAssistant();
+			emptyPendingAssistantDiscarded = true;
 		};
 
 		try {
@@ -326,7 +346,26 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 							onFirstServerEvent?.();
 						}
 						const payload = JSON.parse(streamMessage.data);
-						const pendingMessage = botMessageIdx >= 0 ? chatMessages[botMessageIdx] : null;
+						const pendingMessage = getPendingAssistant();
+						const pendingAssistantWentMissing = !pendingMessage && !emptyPendingAssistantDiscarded;
+
+						if (
+							pendingAssistantWentMissing &&
+							(payload.token ||
+								payload.tools ||
+								payload.toolStatus ||
+								payload.error ||
+								payload.done)
+						) {
+							failOnce(
+								new Error(
+									'Pending assistant message was cleared while the response was streaming.'
+								),
+								'The assistant response was interrupted.'
+							);
+							controller.abort();
+							return;
+						}
 
 						if (payload.token) {
 							if (pendingMessage) {
@@ -347,9 +386,7 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 								pendingMessage.pending = false;
 								pendingMessage.live = false;
 							}
-							inFlight = false;
-							setLoading(false);
-							setToolCalling?.(false);
+							finishStream();
 							controller.abort();
 						} else if (payload.tools) {
 							setToolCalling?.(false);
@@ -408,10 +445,14 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 
 			controller.onAbort((event) => {
 				if (event.type === 'error') {
-					inFlight = false;
-					setLoading(false);
-					setToolCalling?.(false);
+					finishStream();
 				}
+			});
+
+			setActiveChatStreamCanceler(() => {
+				controller.abort();
+				removePendingAssistant();
+				finishStream();
 			});
 		} catch (error) {
 			failPendingMessage(error, 'Could not start assistant request.');

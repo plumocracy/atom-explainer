@@ -3,53 +3,40 @@
 	import { browser } from '$app/environment';
 	import { loadCameraPose, saveCameraPose } from '$lib/camera-storage';
 	import { perspective, lookAt } from '$lib/render_math';
-	import {
-		orbitalCameraState,
-		orbitalViewState,
-		simulationValues
-	} from '$lib/chat.svelte';
+	import { orbitalCameraState, orbitalViewState, simulationValues } from '$lib/chat.svelte';
 
-	import {
-		STATUS_FINISHED,
-		STATUS_PROCESSING,
-		STATUS_ERROR,
-		STATUS_IDLE
-	} from '$lib/worker_states';
+	import { STATUS_FINISHED, STATUS_PROCESSING, STATUS_ERROR } from '$lib/worker_states';
 
-	let canvas: HTMLCanvasElement;
+	let canvas = $state<HTMLCanvasElement | null>(null);
 	let gl: WebGL2RenderingContext;
 	let animFrameId: number;
+	let webglError = $state<string | null>(null);
 	let sphereProgram: WebGLProgram | null = null;
 	let lineProgram: WebGLProgram | null = null;
 
 	let uProj: WebGLUniformLocation | null = null;
 	let uView: WebGLUniformLocation | null = null;
 	let uT: WebGLUniformLocation | null = null;
-	let uCloudTime: WebGLUniformLocation | null = null;
-	let uCloudDrift: WebGLUniformLocation | null = null;
-	let uCloudPulse: WebGLUniformLocation | null = null;
-	let uCloudFalloffRadius: WebGLUniformLocation | null = null;
-	let uCloudMinSpeed: WebGLUniformLocation | null = null;
-	let uFlowStrength: WebGLUniformLocation | null = null;
-	let uFlowMaxSpeed: WebGLUniformLocation | null = null;
-	let uFlowAnimationSpeed: WebGLUniformLocation | null = null;
-	let uCameraRadius: WebGLUniformLocation | null = null;
 	let uCameraPosition: WebGLUniformLocation | null = null;
 	let uSphereRadius: WebGLUniformLocation | null = null;
 	let uHidePositiveQuadrant: WebGLUniformLocation | null = null;
 	let lUProj: WebGLUniformLocation | null = null;
 	let lUView: WebGLUniformLocation | null = null;
 	let lUColor: WebGLUniformLocation | null = null;
+	let orbitalWorkerModuleLoad: Promise<typeof import('../orbital.worker.ts?worker')> | null = browser
+		? import('../orbital.worker.ts?worker')
+		: null;
+	let deferredWorkerInitFrame = 0;
+	let sceneInitVersion = 0;
 
-	let worker: Worker;
+	let worker: Worker | null = null;
 	const TOTAL_POINT_COUNT = 40_000;
 	const TARGET_CHUNK_SLOTS = 24;
+	const CLEAR_COLOR = { r: 0.05, g: 0.05, b: 0.07, a: 1.0 };
+	const CANVAS_BACKGROUND = 'rgb(13 13 18)';
 	const BASE_SPHERE_RADIUS = 0.117;
 	const RADIAL_COMPRESSION = 0.035;
 	const MAX_SAMPLE_RADIUS = 80.0;
-	const FLOW_STRENGTH = 1.6;
-	const FLOW_MAX_SPEED = 2.25;
-	const FLOW_ANIMATION_SPEED = 1.8;
 	const SNAPSHOT_BUFFER_DELAY_MS = 220;
 	const MAX_SNAPSHOTS_PER_SLOT = 6;
 	const STATE_TRANSITION_DURATION_MS = 320;
@@ -75,10 +62,26 @@
 		{ id: 'low', latSegments: 2, lonSegments: 4, triangleCount: 16 }
 	];
 
-	let worker_state = $state(STATUS_IDLE);
-	let worker_progress = $state(0);
-
 	let debounceTimer: ReturnType<typeof setTimeout>;
+
+	const loadOrbitalWorkerModule = () => {
+		if (!browser) {
+			throw new Error('Orbital worker can only be loaded in the browser');
+		}
+
+		if (!orbitalWorkerModuleLoad) {
+			orbitalWorkerModuleLoad = import('../orbital.worker.ts?worker');
+		}
+
+		return orbitalWorkerModuleLoad;
+	};
+
+	const waitForNextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+	const clearSceneCanvas = () => {
+		gl.clearColor(CLEAR_COLOR.r, CLEAR_COLOR.g, CLEAR_COLOR.b, CLEAR_COLOR.a);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	};
 
 	// A chunk slot holds a VAO that is always rendering.
 	// When new data arrives for this slot, prevBuf is updated to the current
@@ -150,10 +153,7 @@
 	let axisMesh: Mesh | null = null;
 
 	let lastFrameTime = 0;
-	let fps = $state(0);
-	let renderedPointCount = $state(0);
-	let fpsFrameCount = 0;
-	let fpsElapsed = 0;
+	let canvasReadyForFirstPaint = $state(false);
 
 	let currentJobId = 0;
 	let pendingTransitionTasks: PendingTransitionTask[] = [];
@@ -197,18 +197,6 @@
 	let l = $derived(simulationValues.l);
 	let m = $derived(simulationValues.m);
 	let hidePositiveQuadrant = $derived(orbitalViewState.hidePositiveXYCrossSection);
-
-	// Clamp l into [0, n-1] when n changes.
-	$effect(() => {
-		const maxL = simulationValues.n - 1;
-		if (simulationValues.l > maxL) simulationValues.l = maxL;
-	});
-
-	// Clamp m into [-l, l] when l changes.
-	$effect(() => {
-		if (simulationValues.m > simulationValues.l) simulationValues.m = simulationValues.l;
-		if (simulationValues.m < -simulationValues.l) simulationValues.m = -simulationValues.l;
-	});
 
 	// Debounce worker restarts on quantum number changes.
 	$effect(() => {
@@ -320,13 +308,10 @@ void main() {
   vec3 lightDirB = normalize(vec3(-0.76, 0.18, 0.62));
   vec3 lightRadianceA = vec3(2.4, 1.95, 1.18);
   vec3 lightRadianceB = vec3(0.52, 0.44, 0.28);
-  //vec3 baseColor = vec3(0.96, 0.38, 0.02);
-  vec3 baseColor = vec3(0.63, 0.06, 0.53);
-  //vec3 baseColor = vec3(0.54, 0.31, 0.62);
+	  vec3 baseColor = vec3(0.63, 0.06, 0.53);
 	
-  float radialFade = smoothstep(0.08, 1.0, vRadialRatio);
-  //vec3 farColor = vec3(1.0, 0.78, 0.18);
-  vec3 farColor = vec3(0.98, 0.51, 0.89);
+	  float radialFade = smoothstep(0.08, 1.0, vRadialRatio);
+	  vec3 farColor = vec3(0.98, 0.51, 0.89);
   vec3 albedo = mix(baseColor, farColor, radialFade * 0.9);
   float roughness = mix(0.9, 0.96, radialFade);
   vec3 directLighting =
@@ -501,7 +486,8 @@ void main() {
 		let maxRadius = 0;
 		for (let idx = 0; idx < points.length; idx += 3) {
 			const rawRadius = Math.hypot(points[idx] ?? 0, points[idx + 1] ?? 0, points[idx + 2] ?? 0);
-			const compressedRadius = rawRadius / (1.0 + RADIAL_COMPRESSION * rawRadius) + BASE_SPHERE_RADIUS;
+			const compressedRadius =
+				rawRadius / (1.0 + RADIAL_COMPRESSION * rawRadius) + BASE_SPHERE_RADIUS;
 			if (compressedRadius > maxRadius) {
 				maxRadius = compressedRadius;
 			}
@@ -516,7 +502,11 @@ void main() {
 		}
 
 		const cloudRadius = estimateCompressedCloudRadius(points);
-		const fitRadius = clamp((cloudRadius / Math.sin(Math.PI / 8)) * 1.12, minCameraRadius, maxCameraRadius);
+		const fitRadius = clamp(
+			(cloudRadius / Math.sin(Math.PI / 8)) * 1.12,
+			minCameraRadius,
+			maxCameraRadius
+		);
 		if (fitRadius <= cameraRadius + 1.0 || fitRadius <= lastAutoFitRadiusForJob + 0.4) {
 			return;
 		}
@@ -1456,14 +1446,13 @@ void main() {
 		if (!browser) return;
 
 		if (window.Worker) {
-			const OrbitalWorker = await import('../orbital.worker.ts?worker');
+			const OrbitalWorker = await loadOrbitalWorkerModule();
 			worker = new OrbitalWorker.default();
 			startWorker(simulationValues.n, simulationValues.l, simulationValues.m);
 
 			worker.onmessage = (
 				e: MessageEvent<{
 					status: string;
-					progress?: number;
 					points?: Float32Array;
 					flow?: Float32Array;
 					slotIndex?: number;
@@ -1472,15 +1461,12 @@ void main() {
 					jobId: number;
 				}>
 			) => {
-				const { status, progress, points, flow, slotIndex, replace, message, jobId } = e.data;
+				const { status, points, flow, slotIndex, replace, message, jobId } = e.data;
 				if (jobId !== currentJobId) {
 					return;
 				}
 
 				if (status === STATUS_PROCESSING) {
-					worker_state = STATUS_PROCESSING;
-					worker_progress = progress ?? 0;
-
 					if (points && flow && points.length > 0 && typeof slotIndex === 'number') {
 						const receivedAtMs = performance.now();
 						const eye = getCameraEye();
@@ -1494,13 +1480,11 @@ void main() {
 						}
 					}
 				} else if (status === STATUS_FINISHED) {
-					worker_state = STATUS_FINISHED;
 					if (!hasCompletedInitialHydration && slots.length > 0) {
 						hasCompletedInitialHydration = true;
 					}
 				} else if (status === STATUS_ERROR) {
 					console.error('Worker error:', message);
-					worker_state = STATUS_ERROR;
 				}
 			};
 		}
@@ -1513,7 +1497,6 @@ void main() {
 		pendingTransitionTasks = [];
 		lastAutoFitRadiusForJob = 0;
 
-		worker_state = STATUS_IDLE;
 		worker.postMessage({
 			n,
 			l,
@@ -1629,31 +1612,104 @@ void main() {
 		persistCameraPose();
 	};
 
-	onMount(() => {
-		const restoredCamera = loadCameraPose(
-			ORBITAL_CAMERA_STORAGE_KEY,
-			{ azimuth: cameraAzimuth, elevation: cameraElevation, radius: cameraRadius },
-			{
-				minElevation: minCameraElevation,
-				maxElevation: maxCameraElevation,
-				minRadius: minCameraRadius,
-				maxRadius: maxCameraRadius
-			}
-		);
-		cameraAzimuth = restoredCamera.azimuth;
-		cameraElevation = restoredCamera.elevation;
-		cameraRadius = restoredCamera.radius;
+	const stopRenderLoop = () => {
+		if (animFrameId) {
+			cancelAnimationFrame(animFrameId);
+			animFrameId = 0;
+		}
+	};
+
+	const resetOrbitalSceneState = () => {
+		sceneInitVersion += 1;
+		if (deferredWorkerInitFrame) {
+			cancelAnimationFrame(deferredWorkerInitFrame);
+			deferredWorkerInitFrame = 0;
+		}
+		slots = [];
+		sphereMeshes = [];
+		axisMesh = null;
+		pendingTransitionTasks = [];
+		canvasReadyForFirstPaint = false;
+		sphereProgram = null;
+		lineProgram = null;
+		uProj = null;
+		uView = null;
+		uT = null;
+		uCameraPosition = null;
+		uSphereRadius = null;
+		uHidePositiveQuadrant = null;
+		lUProj = null;
+		lUView = null;
+		lUColor = null;
+	};
+
+	const releaseOrbitalSceneResources = () => {
+		stopRenderLoop();
+		worker?.terminate();
+		worker = null;
+		resetOrbitalSceneState();
+	};
+
+	const teardownOrbitalScene = () => {
+		canvas?.removeEventListener('webglcontextlost', onWebglContextLost);
+		canvas?.removeEventListener('webglcontextrestored', onWebglContextRestored);
+		releaseOrbitalSceneResources();
+	};
+
+	const initializeOrbitalScene = async (restoreCamera = false) => {
+		if (!browser || !canvas) {
+			return;
+		}
+		const sceneCanvas = canvas;
+		void loadOrbitalWorkerModule();
+
+		teardownOrbitalScene();
+		const initVersion = ++sceneInitVersion;
+		if (restoreCamera) {
+			const restoredCamera = loadCameraPose(
+				ORBITAL_CAMERA_STORAGE_KEY,
+				{ azimuth: cameraAzimuth, elevation: cameraElevation, radius: cameraRadius },
+				{
+					minElevation: minCameraElevation,
+					maxElevation: maxCameraElevation,
+					minRadius: minCameraRadius,
+					maxRadius: maxCameraRadius
+				}
+			);
+			cameraAzimuth = restoredCamera.azimuth;
+			cameraElevation = restoredCamera.elevation;
+			cameraRadius = restoredCamera.radius;
+		}
 		markLodsRefreshed(0);
 
-		gl = canvas.getContext('webgl2')!;
+		const nextGl = sceneCanvas.getContext('webgl2');
+		if (!nextGl) {
+			webglError =
+				'WebGL2 is unavailable in this browser or device, so the orbital visualization cannot be rendered.';
+			return;
+		}
 
-		canvas.width = canvas.clientWidth || window.innerWidth;
-		canvas.height = canvas.clientHeight || window.innerHeight;
+		webglError = null;
+		gl = nextGl;
+		sceneCanvas.width = Math.max(1, sceneCanvas.clientWidth || window.innerWidth);
+		sceneCanvas.height = Math.max(1, sceneCanvas.clientHeight || window.innerHeight);
 
-		gl.viewport(0, 0, canvas.width, canvas.height);
+		gl.viewport(0, 0, sceneCanvas.width, sceneCanvas.height);
 
 		gl.enable(gl.DEPTH_TEST);
 		gl.depthFunc(gl.LEQUAL);
+		clearSceneCanvas();
+
+		requestAnimationFrame(() => {
+			if (sceneInitVersion === initVersion) {
+				canvasReadyForFirstPaint = true;
+			}
+		});
+
+		await waitForNextFrame();
+		if (sceneInitVersion !== initVersion || gl !== nextGl) {
+			return;
+		}
 
 		sphereProgram = createProgram(gl, vs, fs);
 		lineProgram = createProgram(gl, lineVs, lineFs);
@@ -1663,15 +1719,6 @@ void main() {
 		uProj = gl.getUniformLocation(sphereProgram, 'uProj');
 		uView = gl.getUniformLocation(sphereProgram, 'uView');
 		uT = gl.getUniformLocation(sphereProgram, 'uT');
-		uCloudTime = gl.getUniformLocation(sphereProgram, 'uCloudTime');
-		uCloudDrift = gl.getUniformLocation(sphereProgram, 'uCloudDrift');
-		uCloudPulse = gl.getUniformLocation(sphereProgram, 'uCloudPulse');
-		uCloudFalloffRadius = gl.getUniformLocation(sphereProgram, 'uCloudFalloffRadius');
-		uCloudMinSpeed = gl.getUniformLocation(sphereProgram, 'uCloudMinSpeed');
-		uFlowStrength = gl.getUniformLocation(sphereProgram, 'uFlowStrength');
-		uFlowMaxSpeed = gl.getUniformLocation(sphereProgram, 'uFlowMaxSpeed');
-		uFlowAnimationSpeed = gl.getUniformLocation(sphereProgram, 'uFlowAnimationSpeed');
-		uCameraRadius = gl.getUniformLocation(sphereProgram, 'uCameraRadius');
 		uCameraPosition = gl.getUniformLocation(sphereProgram, 'uCameraPosition');
 		uSphereRadius = gl.getUniformLocation(sphereProgram, 'uSphereRadius');
 		uHidePositiveQuadrant = gl.getUniformLocation(sphereProgram, 'uHidePositiveQuadrant');
@@ -1685,44 +1732,37 @@ void main() {
 		);
 		axisMesh = createLineMesh(buildAxesSegments(20));
 
-		const proj = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
+		const proj = perspective(Math.PI / 4, sceneCanvas.width / sceneCanvas.height, 0.1, 100);
 		gl.useProgram(sphereProgram);
 		gl.uniformMatrix4fv(uProj, false, proj);
 		gl.uniform1f(uT, 1.0);
-		gl.uniform1f(uCloudDrift, 1.0);
-		gl.uniform1f(uCloudPulse, 1.0);
-		gl.uniform1f(uCloudFalloffRadius, 26.0);
-		gl.uniform1f(uCloudMinSpeed, 0.18);
-		gl.uniform1f(uFlowStrength, FLOW_STRENGTH);
-		gl.uniform1f(uFlowMaxSpeed, FLOW_MAX_SPEED);
-		gl.uniform1f(uFlowAnimationSpeed, FLOW_ANIMATION_SPEED);
-		gl.uniform1f(uCameraRadius, cameraRadius);
 		gl.uniform1f(uSphereRadius, BASE_SPHERE_RADIUS);
 		gl.uniform1f(uHidePositiveQuadrant, 0.0);
 
 		gl.useProgram(lineProgram);
 		gl.uniformMatrix4fv(lUProj, false, proj);
 
-		initWebWorker();
+		await waitForNextFrame();
+		if (sceneInitVersion !== initVersion || gl !== nextGl) {
+			return;
+		}
+
+		sceneCanvas.addEventListener('webglcontextlost', onWebglContextLost);
+		sceneCanvas.addEventListener('webglcontextrestored', onWebglContextRestored);
 
 		lastFrameTime = performance.now();
 
 		function render(now: number) {
-			const dt = (now - lastFrameTime) / 1000;
 			lastFrameTime = now;
-			fpsElapsed += dt;
-			fpsFrameCount += 1;
-			if (fpsElapsed >= 0.25) {
-				fps = Math.round(fpsFrameCount / fpsElapsed);
-				fpsElapsed = 0;
-				fpsFrameCount = 0;
-			}
 
-			if (canvas.clientWidth !== canvas.width || canvas.clientHeight !== canvas.height) {
-				canvas.width = canvas.clientWidth;
-				canvas.height = canvas.clientHeight;
-				gl.viewport(0, 0, canvas.width, canvas.height);
-				const proj = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
+			if (
+				sceneCanvas.clientWidth !== sceneCanvas.width ||
+				sceneCanvas.clientHeight !== sceneCanvas.height
+			) {
+				sceneCanvas.width = Math.max(1, sceneCanvas.clientWidth);
+				sceneCanvas.height = Math.max(1, sceneCanvas.clientHeight);
+				gl.viewport(0, 0, sceneCanvas.width, sceneCanvas.height);
+				const proj = perspective(Math.PI / 4, sceneCanvas.width / sceneCanvas.height, 0.1, 100);
 				gl.useProgram(sphereProgram);
 				gl.uniformMatrix4fv(uProj, false, proj);
 				gl.useProgram(lineProgram);
@@ -1765,11 +1805,6 @@ void main() {
 			}
 			gl.useProgram(sphereProgram);
 			gl.uniformMatrix4fv(uView, false, view);
-			gl.uniform1f(uCloudTime, now * 0.001);
-			gl.uniform1f(uFlowStrength, FLOW_STRENGTH);
-			gl.uniform1f(uFlowMaxSpeed, FLOW_MAX_SPEED);
-			gl.uniform1f(uFlowAnimationSpeed, FLOW_ANIMATION_SPEED);
-			gl.uniform1f(uCameraRadius, cameraRadius);
 			gl.uniform3f(uCameraPosition, eye.x, eye.y, eye.z);
 			gl.uniform1f(uSphereRadius, BASE_SPHERE_RADIUS);
 			gl.uniform1f(uHidePositiveQuadrant, hidePositiveQuadrant ? 1.0 : 0.0);
@@ -1777,9 +1812,7 @@ void main() {
 			gl.useProgram(lineProgram);
 			gl.uniformMatrix4fv(lUView, false, view);
 
-			//gl.clearColor(0.058, 0.086, 0.118, 1.0);
-			gl.clearColor(0.05, 0.05, 0.07, 1.0);
-			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+			clearSceneCanvas();
 
 			if (axisMesh) {
 				gl.useProgram(lineProgram);
@@ -1789,7 +1822,6 @@ void main() {
 			}
 
 			gl.useProgram(sphereProgram);
-			let frameRenderedPointCount = 0;
 			for (const slot of slots) {
 				gl.uniform1f(uT, slot.t);
 				for (let lodIndex = 0; lodIndex < slot.lodBuffers.length; lodIndex++) {
@@ -1799,7 +1831,6 @@ void main() {
 					}
 
 					gl.bindVertexArray(lodBuffers.vao);
-					frameRenderedPointCount += lodBuffers.pointCount;
 					gl.drawArraysInstanced(
 						gl.TRIANGLES,
 						0,
@@ -1808,43 +1839,79 @@ void main() {
 					);
 				}
 			}
-			renderedPointCount = frameRenderedPointCount;
 
 			animFrameId = requestAnimationFrame(render);
 		}
 
 		animFrameId = requestAnimationFrame(render);
+
+		deferredWorkerInitFrame = requestAnimationFrame(() => {
+			deferredWorkerInitFrame = requestAnimationFrame(() => {
+				deferredWorkerInitFrame = 0;
+				void initWebWorker().catch((error) => {
+					console.error(error);
+					teardownOrbitalScene();
+					webglError = 'The orbital visualization could not start its simulation worker.';
+				});
+			});
+		});
+	};
+
+	const onWebglContextLost = (event: Event) => {
+		event.preventDefault();
+		releaseOrbitalSceneResources();
+	};
+
+	const onWebglContextRestored = () => {
+		void initializeOrbitalScene(false).catch((error) => {
+			console.error(error);
+			teardownOrbitalScene();
+			webglError =
+				'The orbital visualization could not recover after the WebGL context was restored.';
+		});
+	};
+
+	onMount(() => {
+		void initializeOrbitalScene(true).catch((error) => {
+			console.error(error);
+			teardownOrbitalScene();
+			webglError = 'The orbital visualization could not initialize WebGL2.';
+		});
 	});
 
 	onDestroy(() => {
-		if (animFrameId) {
-			cancelAnimationFrame(animFrameId);
-		}
-
 		persistCameraPose();
 		clearTimeout(debounceTimer);
-		worker?.terminate();
+		teardownOrbitalScene();
 	});
 </script>
 
 <div class="flex h-full min-h-0 w-full flex-col overflow-hidden text-[var(--color-exhibit-paper)]">
 	<div class="relative min-h-0 flex-1">
 		<div
-			class="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_14%_18%,rgba(126,255,163,0.14),transparent_40%),radial-gradient(circle_at_78%_12%,rgba(214,255,228,0.05),transparent_32%),linear-gradient(135deg,#081017_0%,#0e1b25_60%,#142431_100%)]"
+			class="pointer-events-none absolute inset-0 z-0"
+			style="background-color: {CANVAS_BACKGROUND}"
 		></div>
-		<div
-			class="pointer-events-none absolute top-3 left-3 z-20 rounded border border-[rgba(44,61,75,0.18)] bg-[rgba(243,229,205,0.86)] px-2 py-1 text-[11px] font-semibold tracking-wide text-[rgba(44,61,75,0.95)] uppercase backdrop-blur-sm"
-		>
-			FPS {fps} | Points {renderedPointCount}
-		</div>
-		<canvas
-			bind:this={canvas}
-			onpointerdown={onCanvasPointerDown}
-			onpointermove={onCanvasPointerMove}
-			onpointerup={onCanvasPointerUp}
-			onpointercancel={onCanvasPointerUp}
-			onwheel={onCanvasWheel}
-			class="relative z-10 block h-full w-full cursor-grab touch-none active:cursor-grabbing"
-		></canvas>
+		{#if webglError}
+			<div class="relative z-10 flex h-full w-full items-center justify-center p-6">
+				<div
+					class="max-w-md rounded-2xl border border-[rgba(214,255,228,0.16)] bg-[rgba(8,16,23,0.82)] px-5 py-4 text-center text-sm leading-6 text-[rgba(243,229,205,0.92)] shadow-[0_20px_60px_rgba(0,0,0,0.32)] backdrop-blur-sm"
+				>
+					{webglError}
+				</div>
+			</div>
+		{:else}
+			<canvas
+				bind:this={canvas}
+				onpointerdown={onCanvasPointerDown}
+				onpointermove={onCanvasPointerMove}
+				onpointerup={onCanvasPointerUp}
+				onpointercancel={onCanvasPointerUp}
+				onwheel={onCanvasWheel}
+				class="relative z-10 block h-full w-full cursor-grab touch-none transition-opacity duration-500 active:cursor-grabbing"
+				class:opacity-0={!canvasReadyForFirstPaint}
+				class:opacity-100={canvasReadyForFirstPaint}
+			></canvas>
+		{/if}
 	</div>
 </div>

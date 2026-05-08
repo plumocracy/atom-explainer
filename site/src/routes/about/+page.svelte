@@ -3,7 +3,7 @@
 </script>
 
 <div class="museum-shell">
-	<section class="museum-frame overflow-y-auto">
+	<section class="museum-frame overflow-y-auto bg-[var(--museum-surface)]">
 		<div class="mx-auto w-full max-w-2xl px-4 py-10 md:px-6 md:py-16">
 			<h1 class="museum-title">About</h1>
 

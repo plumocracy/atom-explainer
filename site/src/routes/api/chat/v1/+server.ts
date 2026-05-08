@@ -567,6 +567,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			conversation.standingWaveVisualizationExplained,
 			guidedTour
 		);
+		const upstreamAbortController = new AbortController();
 
 		const stream = new ReadableStream({
 			async start(controller) {
@@ -575,7 +576,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						systemPrompt,
 						history,
 						message,
-						allowTools: starterMode !== 'assistant_intro'
+						allowTools: starterMode !== 'assistant_intro',
+						signal: upstreamAbortController.signal
 					});
 
 					const toolCalls = new ToolCallStreamAccumulator();
@@ -587,6 +589,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					let isCallingTools = false;
 
 					for await (const chunk of completionStream) {
+						if (upstreamAbortController.signal.aborted) {
+							return;
+						}
+
 						if (chunk.error) {
 							throw appError.internal('Upstream stream error', { details: chunk.error });
 						}
@@ -618,6 +624,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 					const finalizedToolCalls = expandBatchedToolCalls(toolCalls.toArray());
 					const allToolCalls = finalizedToolCalls;
+
+					if (upstreamAbortController.signal.aborted) {
+						return;
+					}
 
 					if (finalizedToolCalls.length) {
 						controller.enqueue(encodeSse({ tools: finalizedToolCalls }));
@@ -704,6 +714,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					controller.enqueue(encodeSse({ done: true, assistantMessageId }));
 					controller.close();
 				} catch (error) {
+					if (upstreamAbortController.signal.aborted) {
+						return;
+					}
+
 					const publicError = toPublicError(error, { requestId: locals.requestId });
 					controller.enqueue(encodeSse({ error: publicError }));
 					controller.enqueue(encodeSse({ done: true }));
@@ -711,7 +725,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				}
 			},
 			cancel() {
-				// no-op
+				upstreamAbortController.abort();
 			}
 		});
 

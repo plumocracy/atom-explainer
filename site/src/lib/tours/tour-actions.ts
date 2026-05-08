@@ -1,8 +1,8 @@
 import {
 	bohrSimulationValues,
 	queueOrbitalCameraMove,
+	setSimulationValues,
 	setPositiveXYCrossSectionHidden,
-	simulationValues,
 	type ToolCallMessage,
 	visualizationState
 } from '$lib/chat.svelte';
@@ -22,9 +22,7 @@ export const applyTourActions = (actions: TourAction[]): ToolCallMessage[] => {
 				break;
 
 			case 'set_orbital_params':
-				simulationValues.n = action.n;
-				simulationValues.l = action.l;
-				simulationValues.m = action.m;
+				setSimulationValues({ n: action.n, l: action.l, m: action.m });
 				toolCalls.push({
 					toolName: 'set_simulation_params',
 					simulationValues: { n: action.n, l: action.l, m: action.m }

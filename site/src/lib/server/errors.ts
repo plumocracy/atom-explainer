@@ -1,5 +1,5 @@
 import { error as kitError, json } from '@sveltejs/kit';
-import type { AppErrorCode, PublicAppError } from '$lib/types/app-error';
+import { codeByStatus, type AppErrorCode, type PublicAppError } from '$lib/types/app-error';
 
 export { APP_ERROR_CODES } from '$lib/types/app-error';
 
@@ -27,25 +27,6 @@ type HttpErrorLike = {
 };
 
 const INTERNAL_MESSAGE = 'Internal server error';
-
-export const codeByStatus = (status: number): AppErrorCode => {
-	switch (status) {
-		case 400:
-			return 'BAD_REQUEST';
-		case 401:
-			return 'UNAUTHORIZED';
-		case 403:
-			return 'FORBIDDEN';
-		case 404:
-			return 'NOT_FOUND';
-		case 409:
-			return 'CONFLICT';
-		case 429:
-			return 'RATE_LIMITED';
-		default:
-			return 'INTERNAL';
-	}
-};
 
 export const isRecord = (value: unknown): value is Record<string, unknown> => {
 	return typeof value === 'object' && value !== null;
