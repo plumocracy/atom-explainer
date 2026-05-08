@@ -132,4 +132,52 @@ describe('use-chat-stream helpers', () => {
 		stream.sendMessage('second');
 		expect(messages.length).toBe(2);
 	});
+
+	test('marks streamed assistant message non-live when the stream is done', () => {
+		const abort = vi.fn();
+		const onAbort = vi.fn();
+		let handlers: { onMessage: (message: { data: string }) => void } | null = null;
+		listenMock.mockImplementation(
+			(nextHandlers: { onMessage: (message: { data: string }) => void }) => {
+				handlers = nextHandlers;
+				return { abort, onAbort };
+			}
+		);
+
+		const messages: Array<{
+			role: string;
+			content: string;
+			pending?: boolean;
+			live?: boolean;
+			serverId?: string;
+		}> = [];
+		const stream = useChatStream({
+			chatMessages: messages as never,
+			simulationValues: { n: 1, l: 0, m: 0 },
+			bohrSimulationValues: { atomicNumber: 8 },
+			visualizationState: { mode: 'orbital' },
+			setLoading: vi.fn()
+		});
+
+		stream.sendMessage('first');
+		expect(handlers).not.toBeNull();
+		if (!handlers) {
+			throw new Error('Expected stream handlers');
+		}
+		const streamHandlers = handlers as { onMessage: (message: { data: string }) => void };
+
+		streamHandlers.onMessage({ data: JSON.stringify({ token: 'Hello' }) });
+		streamHandlers.onMessage({
+			data: JSON.stringify({ done: true, assistantMessageId: 'assistant-1' })
+		});
+
+		expect(messages.at(-1)).toMatchObject({
+			role: 'assistant',
+			content: 'Hello',
+			pending: false,
+			live: false,
+			serverId: 'assistant-1'
+		});
+		expect(abort).toHaveBeenCalled();
+	});
 });

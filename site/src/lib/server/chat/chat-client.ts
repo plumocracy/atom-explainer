@@ -62,7 +62,10 @@ export const parseArgumentsJson = (value: string): unknown | undefined => {
 	}
 };
 
-export const collectToolCallsFromResponse = (response: unknown, indexOffset = 0): StreamedToolCall[] => {
+export const collectToolCallsFromResponse = (
+	response: unknown,
+	indexOffset = 0
+): StreamedToolCall[] => {
 	if (typeof response !== 'object' || response === null) {
 		return [];
 	}
@@ -97,8 +100,8 @@ export const collectToolCallsFromResponse = (response: unknown, indexOffset = 0)
 			function: {
 				name: toolName,
 				arguments: argumentsText,
-				parsedArguments: parseArgumentsJson(argumentsText),
-			},
+				parsedArguments: parseArgumentsJson(argumentsText)
+			}
 		});
 	}
 
@@ -109,7 +112,7 @@ export const summarizeToolCalls = (toolCalls: StreamedToolCall[]): string => {
 	return JSON.stringify(
 		toolCalls.map((toolCall) => ({
 			name: toolCall.function.name,
-			arguments: toolCall.function.parsedArguments ?? toolCall.function.arguments,
+			arguments: toolCall.function.parsedArguments ?? toolCall.function.arguments
 		}))
 	);
 };
@@ -138,12 +141,13 @@ export const createChatStream = (input: CreateChatStreamInput) => {
 			messages: [
 				{ role: 'system', content: input.systemPrompt.trim() },
 				...input.history,
-				{ role: 'user', content: input.message.trim() },
+				{ role: 'user', content: input.message.trim() }
 			],
 			temperature: 0,
 			...(input.allowTools === false ? {} : { tools: CHAT_TOOLS }),
-			stream: true,
-		},
+			...(input.allowTools === false ? {} : { parallelToolCalls: true }),
+			stream: true
+		}
 	});
 };
 
@@ -152,7 +156,7 @@ export const createToolExplanation = async (
 ): Promise<ToolExplanationResult> => {
 	const toolSummary = input.toolCalls.map((toolCall) => ({
 		name: toolCall.function.name,
-		arguments: toolCall.function.parsedArguments ?? toolCall.function.arguments,
+		arguments: toolCall.function.parsedArguments ?? toolCall.function.arguments
 	}));
 
 	const response = await openRouter.chat.send({
@@ -164,29 +168,29 @@ export const createToolExplanation = async (
 					content:
 						`${input.systemPrompt.trim()} ` +
 						'Do not call tools in this response. ' +
-						'Write 1-3 concise plain-English sentences explaining what changed and why.',
+						'Write 1-3 concise plain-English sentences explaining what changed and why.'
 				},
 				...input.history,
 				{
 					role: 'user',
-					content: input.message.trim(),
+					content: input.message.trim()
 				},
 				{
 					role: 'user',
-					content: `Tool calls already executed for this turn: ${JSON.stringify(toolSummary)}. Respond to the user now.`,
-				},
+					content: `Tool calls already executed for this turn: ${JSON.stringify(toolSummary)}. Respond to the user now.`
+				}
 			],
 			temperature: 0,
-			stream: false,
-		},
+			stream: false
+		}
 	});
 
 	return {
 		content: response.choices?.[0]?.message?.content?.trim() ?? '',
 		usage: {
 			promptTokens: response.usage?.promptTokens ?? 0,
-			completionTokens: response.usage?.completionTokens ?? 0,
-		},
+			completionTokens: response.usage?.completionTokens ?? 0
+		}
 	};
 };
 
@@ -211,13 +215,14 @@ export const createAdditionalToolCalls = async (
 							`Tool calls already executed for this turn: ${summarizeToolCalls(knownToolCalls)}. ` +
 							'If any part of the user request remains, call all additional tools needed now. ' +
 							'Do not repeat an already executed tool call with the same arguments. ' +
-							'If no additional tools are needed, respond with plain text only and no tool calls.',
-					},
+							'If no additional tools are needed, respond with plain text only and no tool calls.'
+					}
 				],
 				temperature: 0,
 				tools: CHAT_TOOLS,
-				stream: false,
-			},
+				parallelToolCalls: true,
+				stream: false
+			}
 		});
 
 		const additionalRoundCalls = collectToolCallsFromResponse(response, knownToolCalls.length);
@@ -235,7 +240,7 @@ export const createAdditionalToolCalls = async (
 			knownFingerprints.add(fingerprint);
 			knownToolCalls.push({
 				...toolCall,
-				index: knownToolCalls.length,
+				index: knownToolCalls.length
 			});
 			didAdd = true;
 		}

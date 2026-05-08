@@ -92,7 +92,7 @@ export const buildSystemPrompt = (
 	'If the user might want a button that swaps between the orbital and Bohr visualizations, always use create_toggle_button with the visualization toggle option rather than creating a one-way view button. ' +
 	'If you call set_simulation_params, you must also explain what changed and why in plain English. ' +
 	'If the user asks to change perspective, zoom, or viewpoint, call move_camera_to_point with explicit x, y, z coordinates and explain the camera move. ' +
-	'If the user asks for multiple actions, call all required tools in the same turn when the current view supports them. ' +
+	'If the user asks for multiple actions, call all required tools in the same turn when the current view supports them. Prefer apply_scene_actions for multi-action requests so every action is included in one tool call; otherwise emit multiple parallel tool calls in the same response. ' +
 	'If the user asks for an explanation, provide one directly. ' +
 	'Never return an empty assistant message. ' +
 	'When you change simulation parameters, include the final values for n, l, and m in your explanation. ' +

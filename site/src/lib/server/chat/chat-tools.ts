@@ -23,6 +23,75 @@ export const CHAT_TOOLS: ChatFunctionTool[] = [
 	{
 		type: 'function',
 		function: {
+			name: 'apply_scene_actions',
+			description:
+				'Apply multiple supported chat scene actions in one call. Use this when the user asks for more than one change, such as changing the orbital and moving the camera, or adding a visualization and a button.',
+			parameters: {
+				type: 'object',
+				properties: {
+					actions: {
+						type: 'array',
+						items: {
+							type: 'object',
+							properties: {
+								type: {
+									type: 'string',
+									enum: [
+										'set_simulation_params',
+										'create_button',
+										'toggle_positive_xy_cross_section',
+										'create_toggle_button',
+										'insert_standing_wave_visualization',
+										'move_camera_to_point'
+									]
+								},
+								n: { type: 'integer' },
+								l: { type: 'integer' },
+								m: { type: 'integer' },
+								hidden: { type: 'boolean' },
+								x: { type: 'number' },
+								y: { type: 'number' },
+								z: { type: 'number' },
+								durationMs: { type: 'number' },
+								buttons: {
+									type: 'array',
+									items: {
+										type: 'object',
+										properties: {
+											label: { type: 'string' },
+											simulationValues: {
+												type: 'object',
+												properties: {
+													n: { type: 'integer' },
+													l: { type: 'integer' },
+													m: { type: 'integer' }
+												},
+												required: ['n', 'l', 'm']
+											}
+										},
+										required: ['label']
+									}
+								},
+								toggleType: {
+									type: 'string',
+									enum: ['positive_xy_cross_section', 'visualization_mode']
+								},
+								labelWhenVisible: { type: 'string' },
+								labelWhenHidden: { type: 'string' },
+								labelWhenOrbital: { type: 'string' },
+								labelWhenBohr: { type: 'string' }
+							},
+							required: ['type']
+						}
+					}
+				},
+				required: ['actions']
+			}
+		}
+	},
+	{
+		type: 'function',
+		function: {
 			name: 'set_simulation_params',
 			description: 'Set the parameters for the atomic simulation',
 			parameters: {
@@ -193,6 +262,142 @@ export const parseToolArguments = (argumentsText: string): unknown | undefined =
 	} catch {
 		return undefined;
 	}
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const toExpandedToolCall = (
+	name: string,
+	parsedArguments: Record<string, unknown>,
+	index: number
+): StreamedToolCall => {
+	const argumentsText = JSON.stringify(parsedArguments);
+	return {
+		index,
+		type: 'function',
+		function: {
+			name,
+			arguments: argumentsText,
+			parsedArguments
+		}
+	};
+};
+
+const normalizeBatchedAction = (
+	action: unknown
+): { name: string; arguments: Record<string, unknown> } | null => {
+	if (!isRecord(action) || typeof action.type !== 'string') {
+		return null;
+	}
+
+	const { type } = action;
+	if (type === 'set_simulation_params') {
+		const { n, l, m } = action;
+		return typeof n === 'number' && typeof l === 'number' && typeof m === 'number'
+			? { name: type, arguments: { n, l, m } }
+			: null;
+	}
+
+	if (type === 'toggle_positive_xy_cross_section') {
+		return typeof action.hidden === 'boolean'
+			? { name: type, arguments: { hidden: action.hidden } }
+			: null;
+	}
+
+	if (type === 'move_camera_to_point') {
+		const { x, y, z, durationMs } = action;
+		if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number') {
+			return null;
+		}
+
+		return {
+			name: type,
+			arguments: {
+				x,
+				y,
+				z,
+				...(typeof durationMs === 'number' ? { durationMs } : {})
+			}
+		};
+	}
+
+	if (type === 'insert_standing_wave_visualization') {
+		return { name: type, arguments: {} };
+	}
+
+	if (type === 'create_button') {
+		if (Array.isArray(action.buttons)) {
+			return { name: type, arguments: { buttons: action.buttons } };
+		}
+
+		if (typeof action.label !== 'string') {
+			return null;
+		}
+
+		return {
+			name: type,
+			arguments: {
+				buttons: [
+					{
+						label: action.label,
+						...(isRecord(action.simulationValues)
+							? { simulationValues: action.simulationValues }
+							: {})
+					}
+				]
+			}
+		};
+	}
+
+	if (type === 'create_toggle_button') {
+		const args: Record<string, unknown> = {};
+		for (const key of [
+			'toggleType',
+			'labelWhenVisible',
+			'labelWhenHidden',
+			'labelWhenOrbital',
+			'labelWhenBohr'
+		]) {
+			if (typeof action[key] === 'string') {
+				args[key] = action[key];
+			}
+		}
+
+		return typeof args.toggleType === 'string' ? { name: type, arguments: args } : null;
+	}
+
+	return null;
+};
+
+export const expandBatchedToolCalls = (toolCalls: StreamedToolCall[]): StreamedToolCall[] => {
+	const expanded: StreamedToolCall[] = [];
+
+	for (const toolCall of toolCalls) {
+		if (toolCall.function.name !== 'apply_scene_actions') {
+			expanded.push({ ...toolCall, index: expanded.length });
+			continue;
+		}
+
+		const parsedArguments = isRecord(toolCall.function.parsedArguments)
+			? toolCall.function.parsedArguments
+			: parseToolArguments(toolCall.function.arguments);
+		const actions = isRecord(parsedArguments) ? parsedArguments.actions : undefined;
+		if (!Array.isArray(actions)) {
+			continue;
+		}
+
+		for (const action of actions) {
+			const normalized = normalizeBatchedAction(action);
+			if (!normalized) {
+				continue;
+			}
+
+			expanded.push(toExpandedToolCall(normalized.name, normalized.arguments, expanded.length));
+		}
+	}
+
+	return expanded;
 };
 
 export class ToolCallStreamAccumulator {

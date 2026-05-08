@@ -19,15 +19,11 @@ import {
 	encodeSse
 } from '$lib/server/chat/chat-contract';
 import { buildSystemPrompt } from '$lib/server/chat/chat-prompt';
-import {
-	createAdditionalToolCalls,
-	createChatStream,
-	createToolExplanation
-} from '$lib/server/chat/chat-client';
+import { createChatStream } from '$lib/server/chat/chat-client';
 import { estimateUserInputTokens } from '$lib/server/chat/user-input-tokens';
 import { parseCreateButtons } from '$lib/chat-buttons';
 import { generateConversationTitle } from '$lib/server/chat/chat-title';
-import { ToolCallStreamAccumulator } from '$lib/server/chat/chat-tools';
+import { expandBatchedToolCalls, ToolCallStreamAccumulator } from '$lib/server/chat/chat-tools';
 import {
 	finalizeAssistantTurn,
 	getFeedbackMessageIdsForUser,
@@ -311,7 +307,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
 		const feedbackIdsResult = await getFeedbackMessageIdsForUser(
 			userId,
-			messagesWithToolCalls.filter((message) => message.role === 'assistant').map((message) => message.id)
+			messagesWithToolCalls
+				.filter((message) => message.role === 'assistant')
+				.map((message) => message.id)
 		);
 		if (!feedbackIdsResult.ok) {
 			return toErrorResponse(feedbackIdsResult.error, locals.requestId);
@@ -374,7 +372,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 					return conversationResult.data.conversation;
 				})();
-		const titlePromise = conversation.title || starterMode ? null : generateConversationTitle(message);
+		const titlePromise =
+			conversation.title || starterMode ? null : generateConversationTitle(message);
 
 		const touchResult = await touchConversation(conversation.id);
 		if (!touchResult.ok) {
@@ -596,60 +595,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						}
 					}
 
-					const finalizedToolCalls = toolCalls.toArray();
-					let allToolCalls = finalizedToolCalls;
+					const finalizedToolCalls = expandBatchedToolCalls(toolCalls.toArray());
+					const allToolCalls = finalizedToolCalls;
 
 					if (finalizedToolCalls.length) {
-						try {
-							const additionalToolCalls = await createAdditionalToolCalls({
-								systemPrompt,
-								history,
-								message,
-								toolCalls: finalizedToolCalls,
-								maxRounds: 2
-							});
-
-							if (additionalToolCalls.length) {
-								allToolCalls = [...finalizedToolCalls, ...additionalToolCalls];
-							}
-						} catch {
-							// Ignore follow-up tool-planning failures and continue with first-pass tool calls.
-						}
+						controller.enqueue(encodeSse({ tools: finalizedToolCalls }));
 					}
 
 					if (!_hasUserFacingText(assistantResponse) && allToolCalls.length) {
-						try {
-							const followup = await createToolExplanation({
-								systemPrompt,
-								history,
-								message,
-								toolCalls: allToolCalls
-							});
-
-							usage = {
-								promptTokens: usage.promptTokens + followup.usage.promptTokens,
-								completionTokens: usage.completionTokens + followup.usage.completionTokens
-							};
-
-							if (_hasUserFacingText(followup.content)) {
-								assistantResponse = followup.content;
-								controller.enqueue(encodeSse({ token: assistantResponse }));
-							} else {
-								assistantResponse = _synthesizeToolOnlyResponse(allToolCalls);
-								controller.enqueue(encodeSse({ token: assistantResponse }));
-							}
-						} catch {
-							assistantResponse = _synthesizeToolOnlyResponse(allToolCalls);
-							controller.enqueue(encodeSse({ token: assistantResponse }));
-						}
+						assistantResponse = _synthesizeToolOnlyResponse(allToolCalls);
 					}
 
-					if (allToolCalls.length) {
-						controller.enqueue(encodeSse({ tools: allToolCalls }));
-						if (isCallingTools) {
-							controller.enqueue(encodeSse({ toolStatus: 'done' }));
-						}
-					} else if (isCallingTools) {
+					if (isCallingTools) {
 						controller.enqueue(encodeSse({ toolStatus: 'done' }));
 					}
 

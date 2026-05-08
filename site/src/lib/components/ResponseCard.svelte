@@ -34,8 +34,7 @@
 	const pendingRevealFrames = new WeakMap<HTMLElement, number>();
 
 	const isAtomicRevealElement = (node: Node): node is HTMLElement =>
-		node instanceof HTMLElement &&
-		isMathRevealRoot(node.tagName, node.className);
+		node instanceof HTMLElement && isMathRevealRoot(node.tagName, node.className);
 
 	const cloneAttributes = (
 		target: HTMLElement,
@@ -126,6 +125,7 @@
 				pendingRevealFrames.set(nextStep.node, nextStep.remainingFrames);
 			} else {
 				nextStep.node.style.visibility = '';
+				nextStep.node.dataset.mathRevealVisible = 'true';
 				pendingRevealFrames.delete(nextStep.node);
 				assistantRevealQueue.shift();
 			}
@@ -205,7 +205,8 @@
 						assistantRevealQueue.push({
 							type: 'element',
 							node: currentElement,
-							remainingFrames: pendingRevealFrames.get(currentElement) ?? getRevealFrames(targetElement)
+							remainingFrames:
+								pendingRevealFrames.get(currentElement) ?? getRevealFrames(targetElement)
 						});
 					}
 				} else {
@@ -301,63 +302,63 @@
 </script>
 
 <div class="flex w-full" in:fade>
-	<div
-		class="{message.role === 'user' ? 'ml-auto max-w-[82%]' : 'max-w-[92%]'} flex flex-col"
-	>
+	<div class="{message.role === 'user' ? 'ml-auto max-w-[82%]' : 'max-w-[92%]'} flex flex-col">
 		<article
 			class="rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm {message.role === 'user'
 				? 'border-[rgba(39,80,86,0.36)] bg-[rgba(39,80,86,0.14)] text-[var(--museum-text)]'
 				: 'border-[var(--museum-stroke)] bg-[rgba(255,255,255,0.62)] text-[var(--museum-text)]'}"
 		>
-		{#if message.role === 'assistant'}
-			<div class="markdown-body">
-				<div bind:this={assistantContainer}></div>
-				{#if message.pending}
-					<span class="cursor">|</span>
-				{/if}
-			</div>
-		{:else}
-			<p>
-				{displayed}
-				{#if message.pending}
-					<span class="cursor">|</span>
-				{/if}
-			</p>
-		{/if}
-		{#if message.role === 'assistant' && message.buttons?.length}
-			<div class="mt-3 flex flex-wrap justify-start gap-2">
-				{#each message.buttons as button, idx (`${getChatButtonLabel(button)}:${idx}`)}
-					<button
-						type="button"
-						class="rounded-full border border-[rgba(44,61,75,0.18)] bg-[rgba(44,61,75,0.06)] px-3 py-1.5 text-left text-xs font-semibold text-[var(--museum-text)] transition hover:cursor-pointer hover:bg-[rgba(44,61,75,0.12)]"
-						onclick={() => applyChatButton(button)}
-					>
-						{getChatButtonLabel(button)}
-					</button>
-				{/each}
-			</div>
-		{/if}
-		{#if message.role === 'assistant' && message.visualizations?.length}
-			<div class="mt-3 space-y-3">
-				{#each message.visualizations as visualization, idx (`${visualization.type}:${idx}`)}
-					{#if visualization.type === 'standing_wave'}
-						<div
-							class="overflow-hidden rounded-2xl border border-[rgba(44,61,75,0.14)] bg-[rgba(8,16,23,0.96)]"
-						>
-							<div class="h-[28rem] w-full">
-								<StandingWaveCanvas />
-							</div>
-						</div>
+			{#if message.role === 'assistant'}
+				<div class="markdown-body">
+					<div bind:this={assistantContainer}></div>
+					{#if message.pending}
+						<span class="cursor">|</span>
 					{/if}
-				{/each}
-			</div>
-		{/if}
-		{#if message.role === 'assistant' && message.toolCalls?.length}
-			<ToolCallCard toolCalls={message.toolCalls} />
-		{/if}
+				</div>
+			{:else}
+				<p>
+					{displayed}
+					{#if message.pending}
+						<span class="cursor">|</span>
+					{/if}
+				</p>
+			{/if}
+			{#if message.role === 'assistant' && message.buttons?.length}
+				<div class="mt-3 flex flex-wrap justify-start gap-2">
+					{#each message.buttons as button, idx (`${getChatButtonLabel(button)}:${idx}`)}
+						<button
+							type="button"
+							class="rounded-full border border-[rgba(44,61,75,0.18)] bg-[rgba(44,61,75,0.06)] px-3 py-1.5 text-left text-xs font-semibold text-[var(--museum-text)] transition hover:cursor-pointer hover:bg-[rgba(44,61,75,0.12)]"
+							onclick={() => applyChatButton(button)}
+						>
+							{getChatButtonLabel(button)}
+						</button>
+					{/each}
+				</div>
+			{/if}
+			{#if message.role === 'assistant' && message.visualizations?.length}
+				<div class="mt-3 space-y-3">
+					{#each message.visualizations as visualization, idx (`${visualization.type}:${idx}`)}
+						{#if visualization.type === 'standing_wave'}
+							<div
+								class="overflow-hidden rounded-2xl border border-[rgba(44,61,75,0.14)] bg-[rgba(8,16,23,0.96)]"
+							>
+								<div class="h-[28rem] w-full">
+									<StandingWaveCanvas />
+								</div>
+							</div>
+						{/if}
+					{/each}
+				</div>
+			{/if}
+			{#if message.role === 'assistant' && message.toolCalls?.length}
+				<ToolCallCard toolCalls={message.toolCalls} />
+			{/if}
 		</article>
 		{#if message.role === 'assistant' && !message.pending && message.serverId}
-			<div class="mt-0 flex items-center justify-start gap-2 px-1 text-xs text-[var(--museum-subtext)]">
+			<div
+				class="mt-0 flex items-center justify-start gap-2 px-1 text-xs text-[var(--museum-subtext)]"
+			>
 				{#if message.feedbackSubmitted}
 					<p>Thanks for your feedback.</p>
 				{:else}
@@ -582,6 +583,10 @@
 		max-width: 100%;
 	}
 
+	.markdown-body :global([data-math-reveal-visible='true']) {
+		animation: math-reveal-in 220ms ease-out both;
+	}
+
 	.markdown-body :global(a) {
 		color: inherit;
 		text-decoration: underline;
@@ -617,6 +622,23 @@
 	@keyframes blink {
 		to {
 			visibility: hidden;
+		}
+	}
+
+	@keyframes math-reveal-in {
+		from {
+			opacity: 0;
+			transform: translateY(0.12rem);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.markdown-body :global([data-math-reveal-visible='true']) {
+			animation: none;
 		}
 	}
 </style>

@@ -47,6 +47,11 @@ export const CreateButtonArgumentsSchema = z.object({
 		.max(4)
 });
 
+const SingleCreateButtonArgumentsSchema = z.object({
+	label: z.string().trim().min(1).max(40),
+	simulationValues: ButtonSimulationValuesSchema.optional()
+});
+
 export const CreateToggleButtonArgumentsSchema = z.discriminatedUnion('toggleType', [
 	z.object({
 		toggleType: z.literal('positive_xy_cross_section'),
@@ -110,7 +115,12 @@ export const parseCreateButtons = (
 		}
 
 		const legacyResult = LegacyCreateButtonArgumentsSchema.safeParse(parsed);
-		return legacyResult.success ? legacyResult.data.buttons : undefined;
+		if (legacyResult.success) {
+			return legacyResult.data.buttons;
+		}
+
+		const singleResult = SingleCreateButtonArgumentsSchema.safeParse(parsed);
+		return singleResult.success ? [singleResult.data] : undefined;
 	}
 
 	if (toolName === 'create_toggle_button') {

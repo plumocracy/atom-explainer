@@ -187,7 +187,11 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 
 	const startMessageStream = (
 		message: string,
-		options?: { useSeededPending?: boolean; omitUserMessage?: boolean; extraBody?: Record<string, unknown> }
+		options?: {
+			useSeededPending?: boolean;
+			omitUserMessage?: boolean;
+			extraBody?: Record<string, unknown>;
+		}
 	): void => {
 		if (inFlight) {
 			return;
@@ -231,6 +235,7 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 			const pendingMessage = chatMessages[botMessageIdx];
 			if (botMessageIdx >= 0 && pendingMessage) {
 				pendingMessage.pending = false;
+				pendingMessage.live = false;
 				if (!pendingMessage.content) {
 					pendingMessage.content = 'Sorry, I hit an error before I could respond.';
 				}
@@ -340,6 +345,7 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 									pendingMessage.serverId = payload.assistantMessageId;
 								}
 								pendingMessage.pending = false;
+								pendingMessage.live = false;
 							}
 							inFlight = false;
 							setLoading(false);
@@ -420,7 +426,10 @@ export const useChatStream = (options: UseChatStreamOptions) => {
 		startMessageStream(message, { useSeededPending: true });
 	};
 
-	const sendAssistantInitiatedMessage = (message: string, extraBody?: Record<string, unknown>): void => {
+	const sendAssistantInitiatedMessage = (
+		message: string,
+		extraBody?: Record<string, unknown>
+	): void => {
 		startMessageStream(message, { omitUserMessage: true, extraBody });
 	};
 

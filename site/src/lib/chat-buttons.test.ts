@@ -12,6 +12,16 @@ describe('parseCreateButtons', () => {
 		).toEqual([{ label: '2p', simulationValues: { n: 2, l: 1, m: 0 } }]);
 	});
 
+	test('parses single create_button payloads', () => {
+		expect(
+			parseCreateButtons(
+				'create_button',
+				{ label: '3d', simulationValues: { n: 3, l: 2, m: 1 } },
+				''
+			)
+		).toEqual([{ label: '3d', simulationValues: { n: 3, l: 2, m: 1 } }]);
+	});
+
 	test('parses create_toggle_button cross-section payloads', () => {
 		expect(
 			parseCreateButtons(
