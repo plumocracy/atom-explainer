@@ -9,16 +9,13 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 export default defineConfig({
 	server: {
 		fs: {
-			allow: [
-				resolve(__dirname, 'orbital-math/pkg'),
-				resolve(__dirname, 'src'),
-			],
-		},
+			allow: [resolve(__dirname, 'orbital-math/pkg'), resolve(__dirname, 'src')]
+		}
 	},
-	plugins: [tailwindcss(), sveltekit()],
+	plugins: [tailwindcss(), wasm(), topLevelAwait(), sveltekit()],
 	resolve: {
 		alias: {
-			'@orbital': resolve(__dirname, "./orbital-math/pkg")
+			'@orbital': resolve(__dirname, './orbital-math/pkg')
 		}
 	},
 	test: {

@@ -1,0 +1,126 @@
+{
+	"id": "bohr-orbital-basics",
+	"title": "Bohr vs Orbital Basics",
+	"description": "A short guided lesson comparing shell diagrams with orbital probability clouds.",
+	"steps": [
+		{
+			"id": "bohr-shells",
+			"assistantMarkdown": "We are starting in the **Bohr model**. The rings are a simplified way to picture where electrons belong by energy. What do you think each shell represents?",
+			"actions": [
+				{
+					"type": "set_visualization_mode",
+					"mode": "bohr"
+				},
+				{
+					"type": "set_bohr_atomic_number",
+					"atomicNumber": 8
+				}
+			],
+			"judge": {
+				"goal": "User recognizes that Bohr shells represent discrete electron energy levels.",
+				"mustMentionAny": [
+					"energy",
+					"energy level",
+					"shell"
+				],
+				"niceToMentionAny": [
+					"nucleus",
+					"distance",
+					"electron"
+				],
+				"misconceptions": [
+					"electrons just randomly sit anywhere on the rings"
+				],
+				"advanceThreshold": "strict"
+			},
+			"onAdvanceReply": "Right. In the Bohr picture, each shell stands for an allowed energy level.",
+			"onStayReply": "Not quite. Try describing the rings in terms of **energy levels**, not just circular paths.",
+			"nextStepId": "orbital-cloud"
+		},
+		{
+			"id": "orbital-cloud",
+			"assistantMarkdown": "Now switch to an **orbital** view. This is not a drawn path like a planet orbit. Looking at this `2p` orbital, what does the cloud represent?",
+			"actions": [
+				{
+					"type": "set_visualization_mode",
+					"mode": "orbital"
+				},
+				{
+					"type": "set_orbital_params",
+					"n": 2,
+					"l": 1,
+					"m": 0
+				},
+				{
+					"type": "move_camera_to_point",
+					"x": 18,
+					"y": 10,
+					"z": 14,
+					"durationMs": 1400
+				}
+			],
+			"judge": {
+				"goal": "User understands that an orbital cloud represents a probability distribution rather than a fixed electron path.",
+				"mustMentionAny": [
+					"probability",
+					"likely",
+					"cloud",
+					"region",
+					"electron"
+				],
+				"niceToMentionAny": [
+					"electron",
+					"found",
+					"not a path"
+				],
+				"misconceptions": [
+					"the electron moves exactly along the surface of the cloud",
+					"this is a literal orbit ring"
+				],
+				"advanceThreshold": "strict"
+			},
+			"onAdvanceReply": "Exactly. The cloud shows where the electron is **likely** to be found, not a fixed track.",
+			"onStayReply": "Look at the cloud as a map of **likelihood** rather than a rigid orbit line.",
+			"nextStepId": "p-orbital-shape"
+		},
+		{
+			"id": "p-orbital-shape",
+			"assistantMarkdown": "Focus on the two larger lobes in this `2p` orbital. What important shape feature do you notice, and what does that suggest about where the electron is likely or unlikely to be?",
+			"actions": [
+				{
+					"type": "set_cross_section_hidden",
+					"hidden": true
+				},
+				{
+					"type": "move_camera_to_point",
+					"x": 22,
+					"y": 4,
+					"z": 0,
+					"durationMs": 1400
+				}
+			],
+			"judge": {
+				"goal": "User notices the two-lobed p-orbital shape and the low-probability node between the lobes.",
+				"mustMentionAny": [
+					"two lobes",
+					"node",
+					"middle",
+					"center"
+				],
+				"niceToMentionAny": [
+					"unlikely",
+					"zero probability",
+					"separated regions"
+				],
+				"misconceptions": [
+					"the electron is equally likely everywhere in the middle",
+					"the two lobes are two separate electrons"
+				],
+				"advanceThreshold": "medium"
+			},
+			"onAdvanceReply": "Yes. A `p` orbital has two lobes separated by a node, where the electron is much less likely to be found.",
+			"onStayReply": "Try focusing on the **two-lobed shape** and the lower-probability region between them.",
+			"nextStepId": null
+		}
+	]
+}
