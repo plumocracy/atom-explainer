@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import type { BatchItem } from 'drizzle-orm/batch';
 import { db } from '$lib/server/db';
 import { conversations, messageFeedback, messageToolCalls, messages, user } from '$lib/server/db/schema';
 import { appError } from '$lib/server/errors';
@@ -56,27 +57,24 @@ export const recordUserMessage = async (
 ): Promise<ServerResult<string>> => {
 	try {
 		const userMessageId = crypto.randomUUID();
-		await db.transaction(async (tx) => {
-			await tx
-				.insert(messages)
-				.values({
-					id: userMessageId,
-					userId: input.userId,
-					conversationId: input.conversationId,
-					role: 'user',
-					content: input.message,
-					userInputTokens: input.userInputTokens,
-					simulationValues: JSON.stringify(input.simulation),
-					model: input.model
-				});
-
-			await tx
+		await db.batch([
+			db.insert(messages).values({
+				id: userMessageId,
+				userId: input.userId,
+				conversationId: input.conversationId,
+				role: 'user',
+				content: input.message,
+				userInputTokens: input.userInputTokens,
+				simulationValues: JSON.stringify(input.simulation),
+				model: input.model
+			}),
+			db
 				.update(conversations)
 				.set({
 					userInputTokens: sql`${conversations.userInputTokens} + ${input.userInputTokens}`
 				})
-				.where(eq(conversations.id, input.conversationId));
-		});
+				.where(eq(conversations.id, input.conversationId))
+		]);
 
 		return ok(userMessageId);
 	} catch (error) {
@@ -99,38 +97,42 @@ export const finalizeAssistantTurn = async (
 			argumentsJson: toolCall.function.parsedArguments ?? null
 		}));
 
-		await db.transaction(async (tx) => {
-			await tx
-				.insert(messages)
-				.values({
-					id: assistantMessageId,
-					userId: input.userId,
-					conversationId: input.conversationId,
-					role: 'assistant',
-					content: input.assistantMessage,
-					simulationValues: input.metadata ?? null,
-					model: input.model
-				});
+		const statements: [BatchItem<'pg'>, ...BatchItem<'pg'>[]] = [
+			db.insert(messages).values({
+				id: assistantMessageId,
+				userId: input.userId,
+				conversationId: input.conversationId,
+				role: 'assistant',
+				content: input.assistantMessage,
+				simulationValues: input.metadata ?? null,
+				model: input.model
+			})
+		];
 
-			if (toolCallRows.length) {
-				await tx.insert(messageToolCalls).values(toolCallRows);
-			}
+		if (toolCallRows.length) {
+			statements.push(db.insert(messageToolCalls).values(toolCallRows));
+		}
 
-			if (input.userMessageId) {
-				await tx
+		if (input.userMessageId) {
+			statements.push(
+				db
 					.update(messages)
 					.set({ responseAt: new Date() })
-					.where(and(eq(messages.userId, input.userId), eq(messages.id, input.userMessageId)));
-			}
+					.where(and(eq(messages.userId, input.userId), eq(messages.id, input.userMessageId)))
+			);
+		}
 
-			await tx
+		statements.push(
+			db
 				.update(conversations)
 				.set({
 					completionTokens: sql`${conversations.completionTokens} + ${input.usage.completionTokens}`,
 					promptTokens: input.usage.promptTokens
 				})
-				.where(eq(conversations.id, input.conversationId));
-		});
+				.where(eq(conversations.id, input.conversationId))
+		);
+
+		await db.batch(statements);
 
 		return ok(assistantMessageId);
 	} catch (error) {
@@ -153,23 +155,23 @@ export const recordAssistantMessage = async (
 			argumentsJson: toolCall.function.parsedArguments ?? null
 		}));
 
-		await db.transaction(async (tx) => {
-			await tx
-				.insert(messages)
-				.values({
-					id: assistantMessageId,
-					userId: input.userId,
-					conversationId: input.conversationId,
-					role: 'assistant',
-					content: input.assistantMessage,
-					simulationValues: input.metadata ?? null,
-					model: input.model
-				});
+		const statements: [BatchItem<'pg'>, ...BatchItem<'pg'>[]] = [
+			db.insert(messages).values({
+				id: assistantMessageId,
+				userId: input.userId,
+				conversationId: input.conversationId,
+				role: 'assistant',
+				content: input.assistantMessage,
+				simulationValues: input.metadata ?? null,
+				model: input.model
+			})
+		];
 
-			if (toolCallRows.length) {
-				await tx.insert(messageToolCalls).values(toolCallRows);
-			}
-		});
+		if (toolCallRows.length) {
+			statements.push(db.insert(messageToolCalls).values(toolCallRows));
+		}
+
+		await db.batch(statements);
 
 		return ok(assistantMessageId);
 	} catch (error) {
