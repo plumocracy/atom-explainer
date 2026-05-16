@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { MessageFeedbackRequestSchema } from '$lib/server/chat/chat-contract';
 import { upsertMessageFeedback } from '$lib/server/chat/chat-store';
-import { appError, toErrorResponse } from '$lib/server/errors';
+import { appError, parseJsonRequestBody, toErrorResponse } from '$lib/server/errors';
 import { canUserChat, requireUser } from '$lib/server/user';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -17,7 +17,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return toErrorResponse(userResult.error, locals.requestId);
 		}
 
-		const payload = MessageFeedbackRequestSchema.safeParse(await request.json());
+		const payload = MessageFeedbackRequestSchema.safeParse(await parseJsonRequestBody(request));
 		if (!payload.success) {
 			throw appError.badRequest('Invalid message feedback payload', payload.error.flatten());
 		}

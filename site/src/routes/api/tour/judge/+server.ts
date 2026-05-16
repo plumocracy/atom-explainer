@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
-import { appError, toErrorResponse } from '$lib/server/errors';
+import { appError, parseJsonRequestBody, toErrorResponse } from '$lib/server/errors';
 import { judgeTourStep } from '$lib/server/tours/tour-judge';
 import { canUserChat } from '$lib/server/user';
 import { getTourStep } from '$lib/tours/tours';
@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return toErrorResponse(chatAccess.error, locals.requestId);
 		}
 
-		const payload = TourJudgeRequestSchema.safeParse(await request.json());
+		const payload = TourJudgeRequestSchema.safeParse(await parseJsonRequestBody(request));
 		if (!payload.success) {
 			return toErrorResponse(payload.error, locals.requestId);
 		}
