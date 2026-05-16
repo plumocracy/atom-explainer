@@ -3,20 +3,21 @@ import { env } from '$env/dynamic/private';
 import { z } from 'zod';
 import { appError } from './errors';
 import { err, ok, type ServerResult } from './result';
+import { retryAsync } from './retry';
 
 export const openRouter = new OpenRouter({
-	apiKey: env.OPENROUTER_API_KEY,
+	apiKey: env.OPENROUTER_API_KEY
 });
 
 export const SimulationValuesSchema = z.object({
 	n: z.number(),
 	l: z.number(),
-	m: z.number(),
+	m: z.number()
 });
 
 export const ModelQuerySchema = z.object({
 	message: z.string(),
-	currentSimulationValues: SimulationValuesSchema,
+	currentSimulationValues: SimulationValuesSchema
 });
 
 export const ModelResponseSchema = z.object({
@@ -24,28 +25,64 @@ export const ModelResponseSchema = z.object({
 	params: SimulationValuesSchema,
 	message: z.string(),
 	inputTokens: z.number(),
-	outputTokens: z.number(),
+	outputTokens: z.number()
 });
 
 export type ModelResponse = z.infer<typeof ModelResponseSchema>;
 export type ModelQuery = z.infer<typeof ModelQuerySchema>;
 
-type OpenRouterErrorWithStatus = Error & { statusCode?: number };
+type OpenRouterErrorWithStatus = Error & { statusCode?: number; status?: number };
+type SendOpenRouterOptions = Parameters<typeof openRouter.chat.send>[1] & { attempts?: number };
+
+const TRANSIENT_OPENROUTER_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+
+export const getOpenRouterStatus = (error: unknown): number | undefined => {
+	if (typeof error !== 'object' || error === null) {
+		return undefined;
+	}
+
+	const maybeError = error as OpenRouterErrorWithStatus;
+	return maybeError.statusCode ?? maybeError.status;
+};
+
+export const isRetryableOpenRouterError = (error: unknown): boolean => {
+	const status = getOpenRouterStatus(error);
+	return typeof status === 'number' && TRANSIENT_OPENROUTER_STATUSES.has(status);
+};
 
 export const mapOpenRouterError = (error: OpenRouterErrorWithStatus) => {
-	if (error.statusCode === 401) {
-		return appError.unauthorized('Invalid API key');
+	const status = getOpenRouterStatus(error);
+	if (status === 401) {
+		return appError.unauthorized('The model provider rejected the API key.');
 	}
 
-	if (error.statusCode === 429) {
-		return appError.rateLimited('Rate limited - try again later');
+	if (status === 429) {
+		return appError.rateLimited('The model provider is rate limited. Please try again shortly.');
 	}
 
-	if (error.statusCode === 503) {
-		return appError.internal('Model unavailable', { cause: error });
+	if (status === 408 || status === 504) {
+		return appError.internal('The model provider timed out. Please try again.', { cause: error });
+	}
+
+	if (status === 502 || status === 503) {
+		return appError.internal('The model provider is temporarily unavailable. Please try again.', {
+			cause: error
+		});
 	}
 
 	return appError.internal('Unexpected model error', { cause: error });
+};
+
+export const sendOpenRouterChat = <T>(
+	request: Parameters<typeof openRouter.chat.send>[0],
+	options?: SendOpenRouterOptions
+): Promise<T> => {
+	const { attempts, ...requestOptions } = options ?? {};
+	return retryAsync(() => openRouter.chat.send(request, requestOptions) as Promise<T>, {
+		attempts,
+		signal: requestOptions.signal ?? undefined,
+		shouldRetry: isRetryableOpenRouterError
+	});
 };
 
 export async function queryModel(query: ModelQuery): Promise<ServerResult<ModelResponse>> {
@@ -69,15 +106,18 @@ export async function queryModel(query: ModelQuery): Promise<ServerResult<ModelR
 		'The following question is provided by one of your students who is confused: ';
 
 	try {
-		const response = await openRouter.chat.send({
+		const response = await sendOpenRouterChat<{
+			choices: Array<{ message: { content?: string | null } }>;
+			usage?: { completionTokens?: number; promptTokens?: number };
+		}>({
 			chatRequest: {
 				model: 'deepseek/deepseek-v3.2',
 				messages: [
 					{ role: 'system', content: systemPrompt.trim() },
-					{ role: 'user', content: message.trim() },
+					{ role: 'user', content: message.trim() }
 				],
-				stream: false,
-			},
+				stream: false
+			}
 		});
 
 		const parsedJson = JSON.parse(response.choices[0].message.content ?? '{}') as {
@@ -90,12 +130,16 @@ export async function queryModel(query: ModelQuery): Promise<ServerResult<ModelR
 			params: parsedJson.params,
 			message: parsedJson.message,
 			inputTokens: response.usage?.completionTokens ?? 0,
-			outputTokens: response.usage?.promptTokens ?? 0,
+			outputTokens: response.usage?.promptTokens ?? 0
 		};
 
 		const validatedResponse = ModelResponseSchema.safeParse(modelResponse);
 		if (!validatedResponse.success) {
-			return err(appError.internal('Model response validation failed', { details: validatedResponse.error.flatten() }));
+			return err(
+				appError.internal('Model response validation failed', {
+					details: validatedResponse.error.flatten()
+				})
+			);
 		}
 
 		return ok(validatedResponse.data);

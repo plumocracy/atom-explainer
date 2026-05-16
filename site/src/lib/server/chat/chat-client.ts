@@ -1,7 +1,7 @@
 import type { ConversationMessage } from '$lib/server/conversation';
-import { openRouter } from '$lib/server/openrouter';
+import { sendOpenRouterChat } from '$lib/server/openrouter';
 import type { StreamedToolCall } from './chat-contract';
-import { CHAT_TOOLS } from './chat-tools';
+import { CHAT_TOOLS, type ToolCallDelta } from './chat-tools';
 
 type CreateChatStreamInput = {
 	systemPrompt: string;
@@ -9,6 +9,20 @@ type CreateChatStreamInput = {
 	message: string;
 	allowTools?: boolean;
 	signal?: AbortSignal;
+};
+
+type ChatStreamChunk = {
+	error?: unknown;
+	choices?: Array<{
+		delta?: {
+			content?: string;
+			toolCalls?: ToolCallDelta[];
+		};
+	}>;
+	usage?: {
+		completionTokens?: number;
+		promptTokens?: number;
+	};
 };
 
 export const parseArgumentsText = (value: unknown): string => {
@@ -113,7 +127,7 @@ export const makeToolCallFingerprint = (toolCall: StreamedToolCall): string => {
 };
 
 export const createChatStream = (input: CreateChatStreamInput) => {
-	return openRouter.chat.send(
+	return sendOpenRouterChat<AsyncIterable<ChatStreamChunk>>(
 		{
 			chatRequest: {
 				model: 'deepseek/deepseek-v3.2',

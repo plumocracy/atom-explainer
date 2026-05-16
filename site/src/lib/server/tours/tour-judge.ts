@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { appError } from '$lib/server/errors';
-import { mapOpenRouterError, openRouter } from '$lib/server/openrouter';
+import { mapOpenRouterError, sendOpenRouterChat } from '$lib/server/openrouter';
 import { err, ok, type ServerResult } from '$lib/server/result';
 import type { ConversationMessage } from '$lib/server/conversation';
 import type { TourStep } from '$lib/tours/tour-schema';
@@ -23,7 +23,8 @@ const TourConfirmationResultSchema = z.object({
 
 type TourConfirmationResult = z.infer<typeof TourConfirmationResultSchema>;
 
-export const stringifyList = (values: string[]): string => (values.length ? values.join(', ') : 'none');
+export const stringifyList = (values: string[]): string =>
+	values.length ? values.join(', ') : 'none';
 
 export const extractJsonObject = (content: string): string => {
 	const trimmed = content.trim();
@@ -93,7 +94,9 @@ const requestStructuredJudgeResult = async <T>(input: {
 	errorMessage: string;
 }): Promise<ServerResult<T>> => {
 	try {
-		const response = await openRouter.chat.send({
+		const response = await sendOpenRouterChat<{
+			choices?: Array<{ message?: { content?: string | null } }>;
+		}>({
 			chatRequest: {
 				model: 'deepseek/deepseek-v3.2',
 				messages: [
@@ -197,7 +200,7 @@ export const judgeTourConfirmation = async (input: {
 
 	const systemPrompt = [
 		'You are evaluating a learner reply to a confirmation question in a guided atomic simulation lesson.',
-		'The assistant has already summarized the learner\'s earlier answer and asked whether that summary is correct.',
+		"The assistant has already summarized the learner's earlier answer and asked whether that summary is correct.",
 		'Return strict JSON with keys affirmative, reason, and reply.',
 		'Set affirmative=true only when the learner clearly confirms the summary or clearly says yes.',
 		'If the learner is uncertain, revises the answer, asks a follow-up question, or says no, set affirmative=false.',

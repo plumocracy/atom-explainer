@@ -342,9 +342,11 @@ import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
 </script>
 
 <div class="flex w-full" in:fade>
-	<div class="{message.role === 'user' ? 'ml-auto max-w-[82%]' : 'max-w-[92%]'} flex flex-col">
+	<div
+		class="{message.role === 'user' ? 'ml-auto max-w-[82%]' : 'max-w-[92%]'} flex min-w-0 flex-col items-start"
+	>
 		<article
-			class="rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm {message.role === 'user'
+			class="w-fit max-w-full min-w-0 rounded-xl border px-4 py-3 text-sm leading-relaxed shadow-sm {message.role === 'user'
 				? 'border-[rgba(39,80,86,0.36)] bg-[rgba(39,80,86,0.14)] text-[var(--museum-text)]'
 				: 'border-[var(--museum-stroke)] bg-[rgba(255,255,255,0.62)] text-[var(--museum-text)]'}"
 		>
@@ -427,6 +429,7 @@ import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
 <style>
 	.markdown-body {
 		font: inherit;
+		max-width: 100%;
 	}
 
 	.markdown-body :global(p),
@@ -588,6 +591,9 @@ import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
 	}
 
 	.markdown-body :global(.katex-display) {
+		display: block;
+		width: fit-content;
+		max-width: 100%;
 		overflow-x: auto;
 		overflow-y: hidden;
 		margin: 0.85rem 0;
@@ -595,21 +601,26 @@ import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
 
 	.markdown-body :global(.display-math-block) {
 		display: block;
+		width: fit-content;
+		max-width: 100%;
 	}
 
 	.markdown-body :global(.math-block-eqno) {
-		display: flex;
+		display: inline-flex;
 		align-items: flex-start;
 		gap: 0.75rem;
+		max-width: 100%;
 	}
 
 	.markdown-body :global(.math-block-eqno .katex-display) {
 		flex: 1;
+		min-width: 0;
 		margin: 0.85rem 0;
 	}
 
 	.markdown-body :global(.math-block-eqno .display-math-block) {
 		flex: 1;
+		min-width: 0;
 	}
 
 	.markdown-body :global(.math-eqno) {

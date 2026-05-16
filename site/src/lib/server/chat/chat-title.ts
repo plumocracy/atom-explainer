@@ -1,5 +1,5 @@
 import { appError } from '$lib/server/errors';
-import { openRouter } from '$lib/server/openrouter';
+import { mapOpenRouterError, sendOpenRouterChat } from '$lib/server/openrouter';
 import { err, ok, type ServerResult } from '$lib/server/result';
 
 export const normalizeTitle = (value: string): string => {
@@ -9,7 +9,9 @@ export const normalizeTitle = (value: string): string => {
 
 export const generateConversationTitle = async (message: string): Promise<ServerResult<string>> => {
 	try {
-		const response = await openRouter.chat.send({
+		const response = await sendOpenRouterChat<{
+			choices?: Array<{ message?: { content?: string | null } }>;
+		}>({
 			chatRequest: {
 				model: 'openai/gpt-oss-120b',
 				messages: [
@@ -34,6 +36,10 @@ export const generateConversationTitle = async (message: string): Promise<Server
 
 		return ok(title);
 	} catch (error) {
-		return err(appError.internal('Could not generate conversation title', { cause: error }));
+		return err(
+			error instanceof Error
+				? mapOpenRouterError(error)
+				: appError.internal('Could not generate conversation title', { cause: error })
+		);
 	}
 };
