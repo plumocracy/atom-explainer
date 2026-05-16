@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
 import { json } from '@sveltejs/kit';
 import { canUserChat, requireUser } from '$lib/server/user';
-import { appError, toErrorResponse, toPublicError } from '$lib/server/errors';
+import { appError, parseJsonRequestBody, toErrorResponse, toPublicError } from '$lib/server/errors';
 import {
 	getActiveConversation,
 	getConversationForUser,
@@ -21,10 +21,7 @@ import {
 import { buildSystemPrompt } from '$lib/server/chat/chat-prompt';
 import { createChatStream } from '$lib/server/chat/chat-client';
 import { estimateUserInputTokens } from '$lib/server/chat/user-input-tokens';
-import {
-	canUserUseChatTokens,
-	recordTokenUsage
-} from '$lib/server/usage-limits';
+import { canUserUseChatTokens, recordTokenUsage } from '$lib/server/usage-limits';
 import { parseCreateButtons } from '$lib/chat-buttons';
 import { generateConversationTitle } from '$lib/server/chat/chat-title';
 import { expandBatchedToolCalls, ToolCallStreamAccumulator } from '$lib/server/chat/chat-tools';
@@ -354,7 +351,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return toErrorResponse(chatAccess.error, locals.requestId);
 		}
 
-		const payload = ChatRequestSchema.safeParse(await request.json());
+		const payload = ChatRequestSchema.safeParse(await parseJsonRequestBody(request));
 		if (!payload.success) {
 			throw appError.badRequest('Invalid chat payload', payload.error.flatten());
 		}

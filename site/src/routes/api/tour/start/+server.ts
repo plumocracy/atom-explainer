@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { canUserChat, requireUser } from '$lib/server/user';
-import { appError, toErrorResponse } from '$lib/server/errors';
+import { appError, parseJsonRequestBody, toErrorResponse } from '$lib/server/errors';
 import { getOrCreateConversationWithStatus, touchConversation } from '$lib/server/conversation';
 import { recordAssistantMessage } from '$lib/server/chat/chat-store';
 import { getTourById } from '$lib/tours/tours';
@@ -21,7 +21,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return toErrorResponse(chatAccess.error, locals.requestId);
 		}
 
-		const payload = TourStartRequestSchema.safeParse(await request.json());
+		const payload = TourStartRequestSchema.safeParse(await parseJsonRequestBody(request));
 		if (!payload.success) {
 			throw appError.badRequest('Invalid tour start payload', payload.error.flatten());
 		}

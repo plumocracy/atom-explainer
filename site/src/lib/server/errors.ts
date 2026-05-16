@@ -28,6 +28,15 @@ type HttpErrorLike = {
 
 const INTERNAL_MESSAGE = 'Internal server error';
 
+const usableMessage = (value: unknown): string | null => {
+	if (typeof value !== 'string') {
+		return null;
+	}
+
+	const message = value.trim();
+	return message ? message : null;
+};
+
 export const isRecord = (value: unknown): value is Record<string, unknown> => {
 	return typeof value === 'object' && value !== null;
 };
@@ -67,7 +76,7 @@ const createError = (
 	return new AppError(message, {
 		status,
 		code,
-		...options,
+		...options
 	});
 };
 
@@ -85,7 +94,7 @@ export const appError = {
 	rateLimited: (message = 'Too many requests', details?: unknown) =>
 		createError(429, 'RATE_LIMITED', message, { details, expose: true }),
 	internal: (message = INTERNAL_MESSAGE, options: Omit<AppErrorOptions, 'status' | 'code'> = {}) =>
-		createError(500, 'INTERNAL', message, { ...options, expose: false }),
+		createError(500, 'INTERNAL', message, { ...options, expose: false })
 };
 
 export const normalizeError = (value: unknown, options: NormalizeErrorOptions = {}): AppError => {
@@ -100,7 +109,7 @@ export const normalizeError = (value: unknown, options: NormalizeErrorOptions = 
 			details: value.details,
 			cause: value.cause,
 			expose: value.expose,
-			requestId: options.requestId,
+			requestId: options.requestId
 		});
 	}
 
@@ -108,9 +117,9 @@ export const normalizeError = (value: unknown, options: NormalizeErrorOptions = 
 		const status = value.status;
 		const statusCode = codeByStatus(status);
 		const message =
-			(typeof value.body?.message === 'string' && value.body.message) ||
-			(typeof value.message === 'string' && value.message) ||
-			options.message ||
+			usableMessage(value.body?.message) ||
+			usableMessage(value.message) ||
+			usableMessage(options.message) ||
 			INTERNAL_MESSAGE;
 
 		return new AppError(message, {
@@ -118,31 +127,37 @@ export const normalizeError = (value: unknown, options: NormalizeErrorOptions = 
 			code: statusCode,
 			expose: status < 500,
 			requestId: options.requestId,
-			cause: value,
+			cause: value
 		});
 	}
 
 	const status = options.status ?? 500;
 	const code = codeByStatus(status);
-	const message = options.message ?? (value instanceof Error ? value.message : INTERNAL_MESSAGE);
+	const message =
+		usableMessage(options.message) ??
+		(value instanceof Error ? usableMessage(value.message) : null) ??
+		INTERNAL_MESSAGE;
 
 	return new AppError(message, {
 		status,
 		code,
 		expose: status < 500,
 		requestId: options.requestId,
-		cause: value,
+		cause: value
 	});
 };
 
-export const toPublicError = (value: unknown, options: NormalizeErrorOptions = {}): PublicAppError => {
+export const toPublicError = (
+	value: unknown,
+	options: NormalizeErrorOptions = {}
+): PublicAppError => {
 	const normalized = normalizeError(value, options);
 
 	return {
 		code: normalized.code,
 		message: normalized.expose ? normalized.message : INTERNAL_MESSAGE,
 		requestId: normalized.requestId,
-		details: normalized.expose ? normalized.details : undefined,
+		details: normalized.expose ? normalized.details : undefined
 	};
 };
 
@@ -152,10 +167,18 @@ export const toErrorResponse = (value: unknown, requestId?: string): Response =>
 	return json(
 		{
 			success: false,
-			error: toPublicError(normalized),
+			error: toPublicError(normalized)
 		},
 		{ status: normalized.status }
 	);
+};
+
+export const parseJsonRequestBody = async (request: Request): Promise<unknown> => {
+	try {
+		return await request.json();
+	} catch (error) {
+		throw appError.badRequest('Request body must be valid JSON.', { cause: error });
+	}
 };
 
 export const throwKitError = (value: unknown, requestId?: string): never => {

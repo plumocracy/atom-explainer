@@ -5,6 +5,7 @@ import {
 	isHttpErrorLike,
 	isRecord,
 	normalizeError,
+	parseJsonRequestBody,
 	toErrorResponse,
 	toPublicError
 } from './errors';
@@ -30,8 +31,49 @@ describe('errors', () => {
 	});
 
 	test('toPublicError hides non-exposed internal messages', () => {
-		const publicErr = toPublicError(new AppError('secret', { status: 500, code: 'INTERNAL', expose: false }));
+		const publicErr = toPublicError(
+			new AppError('secret', { status: 500, code: 'INTERNAL', expose: false })
+		);
 		expect(publicErr.message).toBe('Internal server error');
+	});
+
+	test('normalizeError falls back when messages are empty or missing', () => {
+		expect(normalizeError(new Error('')).message).toBe('Internal server error');
+		expect(normalizeError({ status: 400, message: '   ' }).message).toBe('Internal server error');
+		expect(normalizeError(undefined).message).toBe('Internal server error');
+	});
+
+	test('normalizeError trims usable messages', () => {
+		expect(normalizeError(new Error('  boom  ')).message).toBe('boom');
+		expect(normalizeError({ status: 400, body: { message: '  bad request  ' } }).message).toBe(
+			'bad request'
+		);
+	});
+
+	test('parseJsonRequestBody returns parsed JSON', async () => {
+		const body = await parseJsonRequestBody(
+			new Request('https://example.test/api', {
+				method: 'POST',
+				body: JSON.stringify({ ok: true })
+			})
+		);
+
+		expect(body).toEqual({ ok: true });
+	});
+
+	test('parseJsonRequestBody throws a descriptive bad request for invalid JSON', async () => {
+		await expect(
+			parseJsonRequestBody(
+				new Request('https://example.test/api', {
+					method: 'POST',
+					body: '{not json'
+				})
+			)
+		).rejects.toMatchObject({
+			status: 400,
+			code: 'BAD_REQUEST',
+			message: 'Request body must be valid JSON.'
+		});
 	});
 
 	test('toErrorResponse returns JSON payload with status', async () => {
