@@ -1,7 +1,7 @@
 import type { StreamedToolCall } from './chat-contract';
 import type { ChatFunctionTool } from '@openrouter/sdk/models';
 
-type ToolCallDelta = {
+export type ToolCallDelta = {
 	index: number;
 	id?: string;
 	type?: string;

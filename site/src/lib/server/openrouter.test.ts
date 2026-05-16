@@ -9,15 +9,45 @@ vi.mock('@openrouter/sdk', () => ({
 	}
 }));
 
-import { mapOpenRouterError, queryModel } from './openrouter';
+import {
+	getOpenRouterStatus,
+	isRetryableOpenRouterError,
+	mapOpenRouterError,
+	queryModel,
+	sendOpenRouterChat
+} from './openrouter';
 
 describe('openrouter', () => {
 	beforeEach(() => send.mockReset());
 
 	test('mapOpenRouterError maps known statuses', () => {
-		expect(mapOpenRouterError({ statusCode: 401 } as Error & { statusCode: number }).code).toBe('UNAUTHORIZED');
-		expect(mapOpenRouterError({ statusCode: 429 } as Error & { statusCode: number }).code).toBe('RATE_LIMITED');
-		expect(mapOpenRouterError({ statusCode: 503 } as Error & { statusCode: number }).message).toBe('Model unavailable');
+		expect(mapOpenRouterError({ statusCode: 401 } as Error & { statusCode: number }).code).toBe(
+			'UNAUTHORIZED'
+		);
+		expect(mapOpenRouterError({ statusCode: 429 } as Error & { statusCode: number }).code).toBe(
+			'RATE_LIMITED'
+		);
+		expect(mapOpenRouterError({ statusCode: 503 } as Error & { statusCode: number }).message).toBe(
+			'The model provider is temporarily unavailable. Please try again.'
+		);
+	});
+
+	test('detects retryable provider statuses', () => {
+		expect(getOpenRouterStatus({ status: 502 })).toBe(502);
+		expect(isRetryableOpenRouterError({ statusCode: 503 })).toBe(true);
+		expect(isRetryableOpenRouterError({ statusCode: 401 })).toBe(false);
+	});
+
+	test('sendOpenRouterChat retries transient provider errors', async () => {
+		send.mockRejectedValueOnce({ statusCode: 503 }).mockResolvedValueOnce({ ok: true });
+
+		await expect(
+			sendOpenRouterChat(
+				{ chatRequest: { model: 'x', messages: [], stream: false } },
+				{ attempts: 2 }
+			)
+		).resolves.toEqual({ ok: true });
+		expect(send).toHaveBeenCalledTimes(2);
 	});
 
 	test('queryModel rejects invalid query', async () => {

@@ -5,6 +5,7 @@ import type { ChatButton } from '$lib/chat-buttons';
 import { parseCreateButtons } from '$lib/chat-buttons';
 import { getConversationSummaries } from '$lib/server/conversation';
 import { isAdminUser } from '$lib/server/user';
+import { retryAsync } from '$lib/server/retry';
 import type { PersistedTourState } from '$lib/tours/tour-persistence';
 import {
 	isMobileRequest,
@@ -150,7 +151,10 @@ export const load: PageServerLoad = async (event) => {
 	const historyPath = selectedConversationId
 		? `/api/chat/v1?conversation=${encodeURIComponent(selectedConversationId)}`
 		: '/api/chat/v1';
-	const historyResponse = await event.fetch(historyPath);
+	const historyResponse = await retryAsync(() => event.fetch(historyPath), {
+		attempts: 2,
+		shouldRetry: (error) => error instanceof TypeError
+	});
 	const payload = (await historyResponse.json().catch(() => null)) as ChatHistoryApiResponse | null;
 
 	if (!historyResponse.ok) {
